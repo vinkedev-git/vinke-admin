@@ -12,7 +12,7 @@ html, body {
 
 html {
   -webkit-text-size-adjust: 100%;
-  background: #f8fafc;
+  background: #f7f6f2;
   color-scheme: light;
 }
 
@@ -21,22 +21,22 @@ body {
   overflow-x: hidden;
   color: #0f172a;
   background:
-    radial-gradient(circle at top, rgba(191, 219, 254, 0.35), transparent 34%),
-    linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+    radial-gradient(circle at top, rgba(98, 54, 240, 0.07), transparent 38%),
+    linear-gradient(180deg, #f7f6f2 0%, #f3f1ec 100%);
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
 }
 
 html.dark {
-  background: #020617;
+  background: #0b0a21;
   color-scheme: dark;
 }
 
 html.dark body {
   color: #e2e8f0;
   background:
-    radial-gradient(circle at top, rgba(30, 41, 59, 0.55), transparent 34%),
-    linear-gradient(180deg, #020617 0%, #0b1220 100%);
+    radial-gradient(circle at top, rgba(98, 54, 240, 0.16), transparent 38%),
+    linear-gradient(180deg, #0b0a21 0%, #100e2e 100%);
 }
 
 html.dark {
