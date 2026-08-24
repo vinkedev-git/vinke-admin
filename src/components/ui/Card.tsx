@@ -9,8 +9,8 @@ export function Card({ className, children, ...props }: CardProps) {
   return (
     <div
       className={cn(
-        "rounded-2xl border border-slate-200 bg-white",
-        "dark:border-slate-800 dark:bg-slate-900",
+        "rounded-[13px] border border-vinke-line/70 bg-white",
+        "dark:border-vinke-navy-line dark:bg-vinke-navy-card",
         className
       )}
       {...props}
@@ -26,8 +26,8 @@ export function CardHeader({ className, children, ...props }: CardHeaderProps) {
   return (
     <div
       className={cn(
-        "border-b border-slate-200 bg-slate-50/80 px-5 py-4",
-        "dark:border-slate-800 dark:bg-slate-900/80",
+        "border-b border-vinke-line2 px-5 py-4",
+        "dark:border-vinke-navy-line",
         className
       )}
       {...props}

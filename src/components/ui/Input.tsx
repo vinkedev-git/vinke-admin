@@ -13,13 +13,13 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
       <input
         ref={ref}
         className={cn(
-          "w-full rounded-xl border bg-white px-4 py-3 text-sm outline-none transition",
-          "border-slate-200 placeholder:text-slate-400 text-slate-900",
-          "focus:border-blue-400 focus:ring-2 focus:ring-blue-200",
+          "w-full rounded-[9px] border-[1.5px] bg-white px-4 py-3 text-sm outline-none transition",
+          "border-vinke-line placeholder:text-vinke-ink3 text-vinke-ink",
+          "focus:border-vinke focus:ring-[3px] focus:ring-vinke-ring",
           "disabled:cursor-not-allowed disabled:opacity-60",
-          "dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500",
-          "dark:focus:border-blue-500 dark:focus:ring-blue-500/30",
-          hasError && "border-red-400 focus:border-red-400 focus:ring-red-200 dark:border-red-500 dark:focus:ring-red-500/30",
+          "dark:border-vinke-navy-line dark:bg-vinke-navy dark:text-slate-100 dark:placeholder:text-slate-500",
+          "dark:focus:border-vinke-lav dark:focus:ring-vinke/30",
+          hasError && "border-vinke-red focus:border-vinke-red focus:ring-vinke-red-soft dark:border-vinke-red dark:focus:ring-vinke-red/30",
           className
         )}
         {...props}
