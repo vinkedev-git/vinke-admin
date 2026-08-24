@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/maintenance/simulados-cleanup?graceDays=30&dryRun=0",
+      "schedule": "0 4 * * *"
+    }
+  ]
+}
