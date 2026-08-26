@@ -83,11 +83,11 @@ function parseAdvancedSearch(raw: string): SearchFilters {
       expandAndPush(filters.examTokens, value);
       continue;
     }
-    if (field === "tema" || field === "topico" || field === "topico") {
+    if (field === "tema" || field === "topico" || field === "assunto") {
       expandAndPush(filters.themeTokens, value);
       continue;
     }
-    if (field === "nivel" || field === "nivel") {
+    if (field === "nivel" || field === "disciplina" || field === "materia") {
       expandAndPush(filters.levelTokens, value);
       continue;
     }

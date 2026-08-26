@@ -42,8 +42,12 @@ export type QuestionFormState = {
   explanationSource: QuestionExplanationSource;
   examId: string;
   examType: string;
+  // Taxonomia ENEM: levelId/level guardam a DISCIPLINA (compat com o modelo
+  // herdado, onde eram o nível); areaId é derivado da disciplina.
   levelId: string;
   level: string;
+  areaId: string;
+  dificuldade: string;
   examYear: string;
   themes: string[];
   themeIds: string[];
@@ -91,6 +95,8 @@ type QuestionDocLike = {
   nivel?: string;
   examYear?: number | null;
   prova_ano?: number | null;
+  areaId?: string | null;
+  dificuldade?: string | null;
   themes?: string[];
   themeIds?: string[];
   isActive?: boolean;
@@ -172,12 +178,13 @@ export function createEmptyQuestionForm(): QuestionFormState {
     prompt: "",
     explanation: "",
     explanationSource: "",
-    examId: "",
-    examType: "TSA",
+    examId: "enem",
+    examType: "ENEM",
     levelId: "",
-    // Nao usa default fixo (ex: "R1") — o valor real vem do catalogo carregado.
-    // Se ficasse "R1", o select podia mostrar outro nivel mas o campo salvar R1.
+    // Nao usa default fixo — a disciplina real vem da taxonomia carregada.
     level: "",
+    areaId: "",
+    dificuldade: "media",
     examYear: "",
     themes: [],
     themeIds: [],
@@ -257,6 +264,8 @@ export function questionDocToForm(data: QuestionDocLike): QuestionFormState {
     examType: (data.examType ?? data.prova_tipo ?? "").toString(),
     levelId: (data.levelId ?? "").toString(),
     level: (data.level ?? data.nivel ?? "").toString(),
+    areaId: (data.areaId ?? "").toString(),
+    dificuldade: (data.dificuldade ?? "media").toString(),
     examYear:
       data.examYear != null
         ? String(data.examYear)
@@ -310,6 +319,14 @@ export function buildQuestionPayload(form: QuestionFormState) {
     Prova: proofLabel,
     level: form.level,
     nivel: form.level,
+    // Taxonomia ENEM (novos campos canônicos; level/themes seguem preenchidos
+    // por compatibilidade com o portal do aluno herdado)
+    areaId: form.areaId || null,
+    disciplinaId: form.levelId || null,
+    disciplina: form.level,
+    assuntoIds: form.themeIds,
+    assuntos: form.themes,
+    dificuldade: form.dificuldade || "media",
     themes: form.themes,
     themeIds: form.themeIds,
     isActive: form.isActive,
@@ -403,6 +420,8 @@ export function QuestionEditorForm({
   const [exams, setExams] = useState<QuestionCatalogOption[]>([]);
   const [levels, setLevels] = useState<QuestionCatalogOption[]>([]);
   const [themeOptions, setThemeOptions] = useState<QuestionCatalogOption[]>([]);
+  // disciplinaId -> areaId (taxonomia ENEM)
+  const [discAreaMap, setDiscAreaMap] = useState<Record<string, string>>({});
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [galleryLoading, setGalleryLoading] = useState(false);
@@ -441,56 +460,68 @@ export function QuestionEditorForm({
       setCatalogLoading(true);
       setCatalogError(null);
       try {
-        const [examRes, levelRes, themeRes] = await Promise.all([
-          authedRequest("/api/admin/catalog/provas"),
-          authedRequest("/api/admin/catalog/niveis"),
-          authedRequest("/api/admin/catalog/temas"),
-        ]);
+        // Toda a classificação vem da taxonomia ENEM:
+        // disciplina ocupa o slot de "nível" e assunto ocupa o slot de "tema"
+        // (nomes herdados do modelo original, mantidos por compatibilidade).
+        const taxRes = await authedRequest("/api/admin/taxonomia");
+        const taxJson = (await taxRes.json()) as {
+          ok: boolean;
+          error?: string;
+          items?: Array<Record<string, unknown>>;
+        };
 
-        const [examJson, levelJson, themeJson] = await Promise.all([
-          examRes.json() as Promise<{ ok: boolean; error?: string; items?: Array<Record<string, unknown>> }>,
-          levelRes.json() as Promise<{ ok: boolean; error?: string; items?: Array<Record<string, unknown>> }>,
-          themeRes.json() as Promise<{ ok: boolean; error?: string; items?: Array<Record<string, unknown>> }>,
-        ]);
-
-        if (!examRes.ok || !examJson.ok) {
-          throw new Error(examJson.error || "Não foi possível carregar provas.");
-        }
-        if (!levelRes.ok || !levelJson.ok) {
-          throw new Error(levelJson.error || "Não foi possível carregar níveis.");
-        }
-        if (!themeRes.ok || !themeJson.ok) {
-          throw new Error(themeJson.error || "Não foi possível carregar temas.");
+        if (!taxRes.ok || !taxJson.ok) {
+          throw new Error(taxJson.error || "Não foi possível carregar a taxonomia.");
         }
 
         if (!active) return;
 
-        const nextExams = (Array.isArray(examJson.items) ? examJson.items : [])
-          .map((item) => ({
-            id: String(item.id ?? ""),
-            title: String(item.title ?? ""),
-            code: String(item.code ?? ""),
-            status: (item.status as QuestionCatalogOption["status"]) ?? "ativo",
+        const nodes = Array.isArray(taxJson.items) ? taxJson.items : [];
+        const byOrdem = (a: Record<string, unknown>, b: Record<string, unknown>) =>
+          Number(a.ordem ?? 0) - Number(b.ordem ?? 0) ||
+          String(a.nome ?? "").localeCompare(String(b.nome ?? ""));
+
+        const areaNomes = new Map(
+          nodes
+            .filter((n) => n.tipo === "area")
+            .map((n) => [String(n.id ?? ""), String(n.sigla ?? n.nome ?? "")])
+        );
+
+        const nextExams: QuestionCatalogOption[] = [
+          { id: "enem", title: "ENEM", code: "ENEM", status: "ativo" },
+          { id: "simulado-vinke", title: "Simulado Vinke", code: "SIM", status: "ativo" },
+        ];
+
+        const discAreaMap: Record<string, string> = {};
+        const nextLevels: QuestionCatalogOption[] = nodes
+          .filter((n) => n.tipo === "disciplina")
+          .sort(byOrdem)
+          .map((n) => {
+            const id = String(n.id ?? "");
+            const areaId = String(n.areaId ?? "");
+            discAreaMap[id] = areaId;
+            const sigla = areaNomes.get(areaId);
+            return {
+              id,
+              title: sigla ? `${String(n.nome ?? "")} · ${sigla}` : String(n.nome ?? ""),
+              code: String(n.nome ?? ""),
+              status: n.ativo === false ? "inativo" : "ativo",
+            };
+          });
+
+        const nextThemes: QuestionCatalogOption[] = nodes
+          .filter((n) => n.tipo === "assunto")
+          .sort(byOrdem)
+          .map((n) => ({
+            id: String(n.id ?? ""),
+            title: String(n.nome ?? ""),
+            code: "",
+            status: n.ativo === false ? "inativo" : "ativo",
+            levelId: String(n.disciplinaId ?? ""),
+            levelLabel: null,
           }));
 
-        const nextLevels = (Array.isArray(levelJson.items) ? levelJson.items : [])
-          .map((item) => ({
-            id: String(item.id ?? ""),
-            title: String(item.title ?? ""),
-            code: String(item.code ?? ""),
-            status: (item.status as QuestionCatalogOption["status"]) ?? "ativo",
-          }));
-
-        const nextThemes = (Array.isArray(themeJson.items) ? themeJson.items : [])
-          .map((item) => ({
-            id: String(item.id ?? ""),
-            title: String(item.title ?? ""),
-            code: String(item.code ?? ""),
-            status: (item.status as QuestionCatalogOption["status"]) ?? "ativo",
-            levelId: (item.levelId as string | null) ?? null,
-            levelLabel: (item.levelLabel as string | null) ?? null,
-          }));
-
+        setDiscAreaMap(discAreaMap);
         setExams(nextExams);
         setLevels(nextLevels);
         setThemeOptions(nextThemes);
@@ -517,12 +548,14 @@ export function QuestionEditorForm({
           const nextThemeIds = Array.from(new Set([...persistedThemeIds, ...fallbackThemeIds]));
 
           // Sempre garante que level (string) fica sincronizado com levelId (doc id).
-          // Se o levelId estiver vazio, usa o primeiro do catalogo.
-          // Se levelId ja existir, usa o title do nivel correspondente.
+          // Usa .code (nome limpo da disciplina, sem a sigla da área) ao gravar.
           const resolvedLevelId = prev.levelId || level?.id || "";
+          const resolvedLevelOption = nextLevels.find((item) => item.id === resolvedLevelId);
           const resolvedLevel =
-            nextLevels.find((item) => item.id === resolvedLevelId)?.title ||
+            resolvedLevelOption?.code ||
+            resolvedLevelOption?.title ||
             prev.level ||
+            level?.code ||
             level?.title ||
             "";
 
@@ -532,6 +565,7 @@ export function QuestionEditorForm({
             examType: prev.examType || exam?.title || prev.examType,
             levelId: resolvedLevelId,
             level: resolvedLevel,
+            areaId: discAreaMap[resolvedLevelId] || prev.areaId || "",
             themeIds: nextThemeIds,
             themes: nextThemeIds
               .map(
@@ -1130,7 +1164,7 @@ export function QuestionEditorForm({
               </div>
 
               <div>
-                <div className="mb-1 text-xs font-semibold text-slate-600 dark:text-slate-300">Nível</div>
+                <div className="mb-1 text-xs font-semibold text-slate-600 dark:text-slate-300">Disciplina</div>
                 <select
                   value={form.levelId}
                   onChange={(event) => {
@@ -1139,11 +1173,11 @@ export function QuestionEditorForm({
                     setForm((prev) => ({
                       ...prev,
                       levelId: event.target.value,
-                      // Sempre sincroniza com o titulo do nivel selecionado (nunca mantem valor antigo)
-                      level: nextLevel?.title || "",
-                      // Preserva os temas selecionados: availableThemes ja mostra
-                      // todos independente do nivel. Sem isso, o botao Salvar
-                      // fica desabilitado ao trocar o nivel (temas ficam vazios).
+                      // Grava o nome limpo da disciplina (code) e sincroniza a área.
+                      level: nextLevel?.code || nextLevel?.title || "",
+                      areaId: discAreaMap[event.target.value] || "",
+                      // Preserva os assuntos selecionados: availableThemes ja mostra
+                      // todos independente da disciplina.
                     }));
                   }}
                   className="w-full rounded-xl border px-4 py-3 text-sm bg-white dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700"
@@ -1154,6 +1188,21 @@ export function QuestionEditorForm({
                       {formatCatalogOptionLabel(option)}
                     </option>
                   ))}
+                </select>
+              </div>
+
+              <div>
+                <div className="mb-1 text-xs font-semibold text-slate-600 dark:text-slate-300">Dificuldade</div>
+                <select
+                  value={form.dificuldade}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, dificuldade: event.target.value }))
+                  }
+                  className="w-full rounded-xl border px-4 py-3 text-sm bg-white dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700"
+                >
+                  <option value="facil">Fácil ●○○</option>
+                  <option value="media">Média ●●○</option>
+                  <option value="dificil">Difícil ●●●</option>
                 </select>
               </div>
 
@@ -1207,8 +1256,8 @@ export function QuestionEditorForm({
           </div>
 
           <div className="min-w-0 rounded-2xl border dark:border-slate-700 bg-white dark:bg-slate-900 p-5">
-            <div className="text-sm font-extrabold text-slate-900 dark:text-slate-100">Tema</div>
-            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Selecione apenas temas já cadastrados.</div>
+            <div className="text-sm font-extrabold text-slate-900 dark:text-slate-100">Assuntos</div>
+            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Selecione os assuntos da questão (gerenciados na Taxonomia).</div>
 
             <div className="mt-3 flex min-w-0 gap-2">
               <select
@@ -1216,11 +1265,11 @@ export function QuestionEditorForm({
                 onChange={(event) => setSelectedThemeId(event.target.value)}
                 className="min-w-0 flex-1 rounded-xl border dark:border-slate-700 bg-white dark:bg-slate-900 dark:text-slate-100 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200 dark:focus:ring-blue-500/30"
               >
-                <option value="">Selecione um tema</option>
+                <option value="">Selecione um assunto</option>
                 {form.levelId ? (
                   <>
                     {availableThemes.filter((t) => t.levelId === form.levelId).length > 0 && (
-                      <optgroup label="── Deste nível ──">
+                      <optgroup label="── Desta disciplina ──">
                         {availableThemes
                           .filter((t) => t.levelId === form.levelId)
                           .map((theme) => (
@@ -1231,7 +1280,7 @@ export function QuestionEditorForm({
                       </optgroup>
                     )}
                     {availableThemes.filter((t) => t.levelId !== form.levelId).length > 0 && (
-                      <optgroup label="── Outros níveis ──">
+                      <optgroup label="── Outras disciplinas ──">
                         {availableThemes
                           .filter((t) => t.levelId !== form.levelId)
                           .map((theme) => (
@@ -1271,7 +1320,7 @@ export function QuestionEditorForm({
                 Seleção rápida
                 {form.levelId && availableThemes.filter((t) => t.levelId === form.levelId).length > 0 && (
                   <span className="ml-1 font-normal text-slate-400 dark:text-slate-500">
-                    (negrito = deste nível)
+                    (negrito = desta disciplina)
                   </span>
                 )}
               </div>
@@ -1285,7 +1334,7 @@ export function QuestionEditorForm({
                       <button
                         key={theme.id}
                         type="button"
-                        title={inactive ? "Tema inativo — ainda pode ser usado" : undefined}
+                        title={inactive ? "Assunto inativo — ainda pode ser usado" : undefined}
                         onClick={() => (selected ? removeTheme(theme.title) : addThemeFromCatalog(theme))}
                         className={cn(
                           "rounded-full border px-3 py-1 text-xs transition",
@@ -1302,7 +1351,7 @@ export function QuestionEditorForm({
                     );
                   })
                 ) : (
-                  <div className="text-xs text-slate-500 dark:text-slate-400">Nenhum tema cadastrado.</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">Nenhum assunto cadastrado.</div>
                 )}
               </div>
             </div>
@@ -1315,7 +1364,7 @@ export function QuestionEditorForm({
                     type="button"
                     onClick={() => removeTheme(theme)}
                     className="rounded-full border dark:border-slate-600 bg-slate-50 dark:bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
-                    title="Remover tema"
+                    title="Remover assunto"
                   >
                     {theme} ✕
                   </button>

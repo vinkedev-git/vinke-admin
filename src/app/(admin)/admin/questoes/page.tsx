@@ -27,6 +27,7 @@ type QBQuestion = {
   correctOptionId?: string; shuffleOptions?: boolean;
   examType?: string; prova_tipo?: string; examYear?: number | null; prova_ano?: number | string | null;
   examSource?: string; Prova?: string; level?: string; nivel?: string;
+  disciplina?: string; dificuldade?: string;
   themes?: string[] | string; isActive?: boolean; explanationSource?: string | null;
   optionA_imageUrl?: string | null; optionB_imageUrl?: string | null;
   optionC_imageUrl?: string | null; optionD_imageUrl?: string | null; optionE_imageUrl?: string | null;
@@ -77,6 +78,14 @@ function getThemes(q: QBQuestion) {
 function getExamType(q: QBQuestion) { return String(q.examType ?? q.prova_tipo ?? "").trim(); }
 function getExamYear(q: QBQuestion) { const y = q.examYear ?? q.prova_ano ?? null; return y == null ? "" : String(y).trim(); }
 function getExamLabel(q: QBQuestion) { return String(q.Prova ?? q.examSource ?? "").trim(); }
+
+function dificuldadeDots(q: QBQuestion) {
+  const d = String(q.dificuldade ?? "").trim();
+  if (d === "facil") return " · ●○○";
+  if (d === "media") return " · ●●○";
+  if (d === "dificil") return " · ●●●";
+  return "";
+}
 
 function sanitizeForCopy(q: QBQuestion) {
   const optionFallbacks = [
@@ -310,11 +319,11 @@ export default function BancoQuestoesPage() {
             <input
               value={search}
               onChange={(e) => setParam({ search: e.target.value, page: null })}
-              placeholder="Busca livre: ano:2017 prova:ME1 tema:pediatria nivel:R1 id:673"
+              placeholder="Busca livre: ano:2023 prova:ENEM disciplina:matemática assunto:funções id:Q-123"
               className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500"
             />
             <div className="mt-1 text-[11px] text-slate-400">
-              Combine filtros. Ex.: <span className="font-semibold">prova:ME1 ano:2017 tema:pediatria</span>
+              Combine filtros. Ex.: <span className="font-semibold">prova:ENEM ano:2023 disciplina:física</span>
             </div>
           </div>
 
@@ -344,7 +353,7 @@ export default function BancoQuestoesPage() {
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {themeFilter && (
               <span className="inline-flex items-center gap-1.5">
-                <Badge tone="amber">Tema: {themeFilter}</Badge>
+                <Badge tone="amber">Assunto: {themeFilter}</Badge>
                 <button
                   type="button"
                   onClick={() => setParam({ tema: null, page: null })}
@@ -383,7 +392,7 @@ export default function BancoQuestoesPage() {
           <table className="w-full min-w-[980px] text-sm">
             <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/60">
               <tr>
-                {["Enunciado", "Metadados", "Temas", "Imagem", "Status", "Correta", ""].map((h) => (
+                {["Enunciado", "Metadados", "Assuntos", "Imagem", "Status", "Correta", ""].map((h) => (
                   <th key={h} className={`px-5 py-3.5 text-xs font-bold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400 ${h === "" ? "text-right" : "text-left"}`}>
                     {h}
                   </th>
@@ -451,7 +460,7 @@ export default function BancoQuestoesPage() {
                           {(examType || "—") + (examYear ? ` · ${examYear}` : "")}
                         </div>
                         <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{examLabel || "—"}</div>
-                        <div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{levelLabel ? `Nível ${levelLabel}` : "Sem nível"}</div>
+                        <div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{levelLabel || "Sem disciplina"}{dificuldadeDots(q)}</div>
                       </td>
 
                       <td className="align-top px-5 py-4">
@@ -461,7 +470,7 @@ export default function BancoQuestoesPage() {
                               <Badge
                                 key={t}
                                 tone={themeFilter === t ? "amber" : "slate"}
-                                title="Clique para filtrar por este tema"
+                                title="Clique para filtrar por este assunto"
                                 onClick={() => setParam({ tema: themeFilter === t ? null : t, page: null })}
                               >
                                 {t}
