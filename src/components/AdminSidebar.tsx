@@ -103,8 +103,7 @@ export default function AdminSidebar({ onNavigate }: { onNavigate?: () => void }
           <GroupLabel>CONTEÚDO</GroupLabel>
           <Item href="/admin/questoes" label="Questões" onNavigate={handleNavigate} />
           <Item href="/admin/provas" label="Provas ENEM" onNavigate={handleNavigate} />
-          <Item href="/admin/temas" label="Taxonomia" onNavigate={handleNavigate} />
-          <Item href="/admin/niveis" label="Níveis" onNavigate={handleNavigate} />
+          <Item href="/admin/taxonomia" label="Taxonomia" onNavigate={handleNavigate} />
           <Item href="/admin/simulados" label="Simulados" onNavigate={handleNavigate} />
           <Item href="/admin/flashcards" label="Flashcards" onNavigate={handleNavigate} />
           <Item href="/admin/midias" label="Mídias" onNavigate={handleNavigate} />
@@ -118,7 +117,6 @@ export default function AdminSidebar({ onNavigate }: { onNavigate?: () => void }
           <Item href="/admin/planos" label="Planos" onNavigate={handleNavigate} />
           <Item href="/admin/assinaturas" label="Assinaturas" onNavigate={handleNavigate} />
           <Item href="/admin/faturas" label="Faturas" onNavigate={handleNavigate} />
-          <Item href="/admin/pagamento" label="Pagamento" onNavigate={handleNavigate} />
 
           <GroupLabel>QUALIDADE</GroupLabel>
           <Item href="/admin/erros-reportados" label="Erros reportados" onNavigate={handleNavigate} />
