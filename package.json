@@ -11,9 +11,11 @@
     "flashcards:import": "node scripts/import-flashcards.mjs",
     "flashcards:clear": "node scripts/clear-flashcards.mjs",
     "flashcards:recalc-decks": "node scripts/recalc-deck-counts.mjs",
-    "students:reset-passwords": "node scripts/reset-student-passwords.mjs"
+    "students:reset-passwords": "node scripts/reset-student-passwords.mjs",
+    "questions:classify": "node scripts/classify-questions.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.120.0",
     "@google-cloud/storage": "^7.19.0",
     "@tiptap/extension-image": "^3.22.4",
     "@tiptap/extension-link": "^3.22.4",
@@ -30,7 +32,8 @@
     "react-dom": "^18.3.1",
     "resend": "^6.9.2",
     "sonner": "^2.0.7",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^20",
