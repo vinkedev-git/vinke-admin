@@ -26,7 +26,7 @@ export default function AlunoLoginPage() {
       };
 
       await sendSignInLinkToEmail(auth, em, actionCodeSettings);
-      localStorage.setItem("aq_magic_email", em);
+      localStorage.setItem("vinke_magic_email", em);
       setSent(true);
     } catch {
       alert("Não foi possível enviar o link. Verifique o Firebase Auth e tente novamente.");

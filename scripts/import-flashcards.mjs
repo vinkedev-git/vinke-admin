@@ -4,7 +4,7 @@
  *
  * Uso:
  *   node scripts/import-flashcards.mjs \
- *     --file="/caminho/para/anestesia_flashcards_import_2026-06-26.xlsx" \
+ *     --file="/caminho/para/flashcards_import.xlsx" \
  *     [--dry-run]
  *
  * Requer as mesmas variaveis de ambiente do sync-questions-from-xlsx.mjs

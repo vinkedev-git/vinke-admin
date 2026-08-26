@@ -2,7 +2,7 @@
 
 Painel administrativo do **Vinke**, plataforma de questões para o ENEM. Gerencia questões, alunos, planos, simulados, flashcards e assinaturas.
 
-Base derivada do código do Anestesia Questões, com infraestrutura 100% independente (Firebase, Vercel e integrações próprias).
+Base derivada de um produto anterior da casa, com infraestrutura 100% independente (Firebase, Vercel e integrações próprias).
 
 ## Stack
 

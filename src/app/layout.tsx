@@ -30,7 +30,7 @@ export default function RootLayout({
   const themeInitScript = `
     (function () {
       try {
-        var stored = localStorage.getItem("aq-theme");
+        var stored = localStorage.getItem("vinke-theme");
         var mode = stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
         var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
         var effective = mode === "system" ? (prefersDark ? "dark" : "light") : mode;

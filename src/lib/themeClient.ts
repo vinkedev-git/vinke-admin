@@ -2,7 +2,7 @@
 
 export type ThemeMode = "light" | "dark" | "system";
 
-const STORAGE_KEY = "aq-theme";
+const STORAGE_KEY = "vinke-theme";
 
 export function getStoredThemeMode(): ThemeMode {
   const stored = localStorage.getItem(STORAGE_KEY);
