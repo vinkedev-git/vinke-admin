@@ -115,8 +115,7 @@ export default function AdminSidebar({ onNavigate }: { onNavigate?: () => void }
 
           <GroupLabel>RECEITA</GroupLabel>
           <Item href="/admin/planos" label="Planos" onNavigate={handleNavigate} />
-          <Item href="/admin/assinaturas" label="Assinaturas" onNavigate={handleNavigate} />
-          <Item href="/admin/faturas" label="Faturas" onNavigate={handleNavigate} />
+          <Item href="/admin/assinaturas" label="Assinaturas & Faturas" onNavigate={handleNavigate} />
 
           <GroupLabel>QUALIDADE</GroupLabel>
           <Item href="/admin/erros-reportados" label="Erros reportados" onNavigate={handleNavigate} />
