@@ -43,7 +43,7 @@ type BlingInvoiceResult = {
   rawResponse: unknown;
 };
 
-const SETTINGS_DOC = adminDb.collection("system_settings").doc("bling");
+const SETTINGS_DOC = () => adminDb.collection("system_settings").doc("bling");
 const DEFAULT_API_BASE = "https://api.bling.com.br";
 const DEFAULT_CONTACTS_PATH = "/Api/v3/contatos";
 const DEFAULT_CALLBACK_PATH = "/api/admin/configuracoes/bling/oauth/callback";
@@ -293,7 +293,7 @@ function validateContactPayload(payload: RecordData) {
 }
 
 async function readSettingsDoc() {
-  const snap = await SETTINGS_DOC.get();
+  const snap = await SETTINGS_DOC().get();
   const data = snap.exists ? (snap.data() as RecordData) : {};
 
   return {
@@ -385,7 +385,7 @@ export async function updateBlingSettings(
   if (nextAccessToken) payload.accessToken = nextAccessToken;
   if (nextRefreshToken) payload.refreshToken = nextRefreshToken;
 
-  await SETTINGS_DOC.set(payload, { merge: true });
+  await SETTINGS_DOC().set(payload, { merge: true });
 }
 
 async function refreshBlingAccessToken(settings: BlingSettings) {
@@ -433,7 +433,7 @@ async function refreshBlingAccessToken(settings: BlingSettings) {
     throw new Error("O Bling não retornou um access token válido.");
   }
 
-  await SETTINGS_DOC.set(
+  await SETTINGS_DOC().set(
     {
       accessToken,
       refreshToken,
