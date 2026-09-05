@@ -90,6 +90,14 @@ export async function PATCH(
 
     const current = entSnap.exists ? entSnap.data() ?? {} : {};
 
+    // O campo `plan` (código do plano no catálogo) é o que o app do aluno usa
+    // para aplicar os limites do gratuito — mantém sincronizado com o planId.
+    let plan: string | null = null;
+    if (planId) {
+      const planSnap = await adminDb.collection("catalog_planos").doc(planId).get();
+      plan = planSnap.exists ? String(planSnap.get("code") ?? "") || null : null;
+    }
+
     await entRef.set(
       {
         uid,
@@ -99,6 +107,7 @@ export async function PATCH(
         expired: false,
         source: current.source || "admin",
         planId: planId || null,
+        plan,
         productId: productId || null,
         productTitle: productTitle || null,
         invoiceStatus: invoiceStatus || null,

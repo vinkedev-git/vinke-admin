@@ -142,7 +142,16 @@ export default function EditarAssinaturaPage() {
 
         if (!active) return;
 
-        setPlans((data.plans || []).filter((item) => item.status !== "inativo"));
+        const activePlans = (data.plans || []).filter((item) => item.status !== "inativo");
+        setPlans(activePlans);
+
+        // Contas do cadastro self-service têm plan:"gratuito" sem planId —
+        // pré-seleciona o plano Gratuito do catálogo para exibição correta.
+        let planId = String(ent.planId ?? "");
+        if (!planId && String(ent.plan ?? "") === "gratuito") {
+          planId = activePlans.find((item) => item.code === "gratuito")?.id ?? "";
+        }
+
         setForm({
           aluno:
             String(profile.name ?? "").trim() ||
@@ -152,7 +161,7 @@ export default function EditarAssinaturaPage() {
           source: String(ent.source ?? "admin"),
           active: ent.active === true,
           pending: ent.pending === true,
-          planId: String(ent.planId ?? ""),
+          planId,
           productId: String(ent.productId ?? ""),
           productTitle: String(ent.productTitle ?? ""),
           invoiceStatus: normalizeInvoiceStatus(ent.invoiceStatus),
