@@ -121,6 +121,9 @@ export async function PATCH(
     await userRef.set(
       {
         email: nextEmail || null,
+        // Mantém o nome do doc raiz em sincronia com o profile/main —
+        // o portal do aluno exibe users.name no cabeçalho.
+        ...(payload.profile.name ? { name: payload.profile.name } : {}),
         updatedAt: new Date(),
       },
       { merge: true }
