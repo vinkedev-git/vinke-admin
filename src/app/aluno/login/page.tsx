@@ -6,7 +6,7 @@ import { useState } from "react";
 import { auth } from "@/lib/firebase";
 import { Button } from "@/components/ui/Button";
 
-const APP_URL = "https://vinke-admin.vercel.app";
+const APP_URL = "https://admin.vinke.app.br";
 
 export default function AlunoLoginPage() {
   const [email, setEmail] = useState("");
