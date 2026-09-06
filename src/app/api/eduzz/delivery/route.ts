@@ -333,6 +333,7 @@ async function resolvePlanMatch(params: {
       const doc = byProductId.docs[0];
       return {
         planId: doc.id,
+        planCode: String(doc.data()?.code ?? "").trim() || null,
         planTitle: String(doc.data()?.title ?? "").trim() || productTitle || null,
         matchedBy: "productId" as const,
       };
@@ -350,6 +351,7 @@ async function resolvePlanMatch(params: {
       const doc = byTitle.docs[0];
       return {
         planId: doc.id,
+        planCode: String(doc.data()?.code ?? "").trim() || null,
         planTitle: String(doc.data()?.title ?? "").trim() || productTitle,
         matchedBy: "title" as const,
       };
@@ -358,9 +360,26 @@ async function resolvePlanMatch(params: {
 
   return {
     planId: null,
+    planCode: null,
     planTitle: productTitle,
     matchedBy: null,
   };
+}
+
+// Validade por plano: mensal renova a cada fatura paga (+1 mês, com 7 dias de
+// tolerância para a próxima cobrança), anual +12 meses, passe reta final tem
+// data fixa (30/11/2026 23:59 no horário de Brasília). Default: 12 meses.
+function computeValidUntil(planCode: string | null, base: Date): Date {
+  const code = String(planCode ?? "");
+  if (code === "mensal") {
+    const d = addMonths(base, 1);
+    d.setDate(d.getDate() + 7);
+    return d;
+  }
+  if (code === "reta-final-2026") {
+    return new Date("2026-12-01T02:59:59.000Z");
+  }
+  return addMonths(base, 12);
 }
 
 function htmlEmail(params: { appName: string; createPasswordUrl: string; loginUrl: string }) {
@@ -562,11 +581,28 @@ export async function POST(req: NextRequest) {
 
     const paidAt = toDateOrNull(paidAtRaw);
     const dueDate = toDateOrNull(dueDateRaw);
-    const validUntil = paidAt
-      ? addMonths(paidAt, 12)
-      : dueDate
-        ? addMonths(dueDate, 12)
-        : null;
+
+    // Casa o produto com o catálogo ANTES de criar qualquer usuário.
+    // A conta Eduzz é compartilhada com outro projeto: produto fora do
+    // catálogo do Vinke é ignorado por completo.
+    const planMatch = await resolvePlanMatch({
+      db,
+      productId,
+      productTitle,
+    });
+
+    if (!planMatch.planId) {
+      await db.collection("eduzz_events").doc(envelopeId).set(
+        { processed: false, reason: "produto_fora_do_catalogo", productId, productTitle },
+        { merge: true }
+      );
+      return NextResponse.json(
+        { ok: true, processed: false, reason: "produto_fora_do_catalogo", productId },
+        { status: 200 }
+      );
+    }
+
+    const validUntil = computeValidUntil(planMatch.planCode, paidAt ?? dueDate ?? new Date());
 
     // Perfil do aluno: prioriza student para identidade, mas usa fallback de endereço do buyer/customer
     const studentProfile = sourceData?.student || {};
@@ -624,11 +660,6 @@ export async function POST(req: NextRequest) {
 
     const entRef = db.collection("entitlements").doc(uid);
     const now = new Date();
-    const planMatch = await resolvePlanMatch({
-      db,
-      productId,
-      productTitle,
-    });
 
     if (action === "activate") {
       // ✅ ENTITLEMENT com vencimento + plano/valor
@@ -640,6 +671,9 @@ export async function POST(req: NextRequest) {
           pending: false,
           source: "eduzz",
           planId: planMatch.planId,
+          // Código do plano — é o campo que o portal do aluno usa para
+          // aplicar (ou liberar) os limites do gratuito.
+          plan: planMatch.planCode ?? null,
           productId,
           productTitle: planMatch.planTitle,
           planMatchedBy: planMatch.matchedBy,
