@@ -2,6 +2,7 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+import { createHmac, timingSafeEqual } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { Resend } from "resend";
@@ -73,21 +74,27 @@ function getSecretFromRequest(req: NextRequest, body: any): string {
   return headerSecret || bodySecret;
 }
 
-async function readBody(req: NextRequest): Promise<any> {
+// Lê o corpo preservando o texto BRUTO — a assinatura x-signature da Eduzz
+// é o HMAC-SHA256 exatamente sobre esses bytes.
+async function readBody(req: NextRequest): Promise<{ parsed: any; rawText: string }> {
+  const rawText = await req.text();
   const ct = req.headers.get("content-type") || "";
   if (ct.includes("application/json")) {
-    return await req.json();
+    try {
+      return { parsed: JSON.parse(rawText), rawText };
+    } catch {
+      return { parsed: {}, rawText };
+    }
   }
-  const fd = await req.formData();
   const fields: Record<string, unknown> = {};
-  fd.forEach((val, key) => {
-    fields[key] = typeof val === "string" ? val : "";
+  new URLSearchParams(rawText).forEach((val, key) => {
+    fields[key] = val;
   });
   const parsedData = parseJsonObject(fields.data);
   if (parsedData) {
     fields.data = parsedData;
   }
-  return fields;
+  return { parsed: fields, rawText };
 }
 
 function extractFromEnvelope(raw: any): {
@@ -168,7 +175,7 @@ function isCancelledLike(value: unknown): boolean {
   if (!normalized) return false;
   return (
     normalized.includes("cancel") ||
-    normalized.includes("refunded") ||
+    normalized.includes("refund") ||
     normalized.includes("reembols") ||
     normalized.includes("chargeback") ||
     normalized.includes("estorn") ||
@@ -431,22 +438,39 @@ export async function POST(req: NextRequest) {
   const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "";
 
   try {
-    const rawBody = await readBody(req);
+    const { parsed: rawBody, rawText } = await readBody(req);
     const { envelopeId, event, data, sentDate } = extractFromEnvelope(rawBody);
     const source: any = data && Object.keys(data).length > 0 ? data : rawBody;
     const nestedData = parseJsonObject(source?.data);
     const sourceData = nestedData ?? source;
 
-    // 1) Validar secret (quando a Eduzz mandar)
+    // 1) Autenticidade: a Eduzz (Developer Hub) assina o corpo com
+    // HMAC-SHA256 no header x-signature usando a chave de acesso.
+    // Mantemos o esquema antigo (secret em claro) como compatibilidade.
+    // Com EDUZZ_WEBHOOK_SECRET configurado, requisição sem assinatura
+    // válida é recusada.
+    const signature = (req.headers.get("x-signature") || "").trim().toLowerCase();
     const receivedSecret = getSecretFromRequest(req, rawBody);
-    const canValidate = Boolean(EDUZZ_WEBHOOK_SECRET);
-    const hasSecret = Boolean(receivedSecret);
+    const hasSecret = Boolean(receivedSecret) || Boolean(signature);
 
-    if (canValidate && hasSecret && receivedSecret !== EDUZZ_WEBHOOK_SECRET) {
-      return NextResponse.json(
-        { ok: false, error: "Unauthorized", debug: { envelopeId, event } },
-        { status: 401 }
-      );
+    if (EDUZZ_WEBHOOK_SECRET) {
+      const expected = createHmac("sha256", EDUZZ_WEBHOOK_SECRET)
+        .update(rawText)
+        .digest("hex");
+      const sigBuf = Buffer.from(signature);
+      const expBuf = Buffer.from(expected);
+      const signatureOk =
+        signature.length > 0 &&
+        sigBuf.length === expBuf.length &&
+        timingSafeEqual(sigBuf, expBuf);
+      const plainOk = Boolean(receivedSecret) && receivedSecret === EDUZZ_WEBHOOK_SECRET;
+
+      if (!signatureOk && !plainOk) {
+        return NextResponse.json(
+          { ok: false, error: "Unauthorized", debug: { envelopeId, event } },
+          { status: 401 }
+        );
+      }
     }
 
     const invoiceStatus =
