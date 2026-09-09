@@ -13,7 +13,8 @@ import {
 } from "@/lib/flashcards/constants";
 
 const DEFAULT_PAGE_SIZE = 50;
-const MAX_PAGE_SIZE = 200;
+// O banco já passa de 750 cards; o teto antigo (200) truncava a listagem.
+const MAX_PAGE_SIZE = 1000;
 
 function toIsoOrNull(value: unknown): string | null {
   if (!value) return null;
@@ -44,27 +45,31 @@ export async function GET(req: NextRequest) {
         ? Math.min(limitParam, MAX_PAGE_SIZE)
         : DEFAULT_PAGE_SIZE;
 
-    let query: FirebaseFirestore.Query = adminDb.collection(COL_FLASHCARDS);
+    // Base SEM o filtro de status: serve para as contagens do cabeçalho
+    // (total/pendentes/publicados são justamente o recorte por status).
+    let base: FirebaseFirestore.Query = adminDb.collection(COL_FLASHCARDS);
 
-    if (statusParam && STATUSES.includes(statusParam)) {
-      query = query.where("status", "==", statusParam);
-    }
     if (moduleParam && MODULES.includes(moduleParam)) {
-      query = query.where("moduleId", "==", moduleParam);
+      base = base.where("moduleId", "==", moduleParam);
     }
     if (difficultyParam && DIFFICULTIES.includes(difficultyParam)) {
-      query = query.where("difficulty", "==", difficultyParam);
+      base = base.where("difficulty", "==", difficultyParam);
     }
     if (deckId) {
-      query = query.where("deckIds", "array-contains", deckId);
+      base = base.where("deckIds", "array-contains", deckId);
     }
     if (themeId) {
-      query = query.where("themeId", "==", themeId);
+      base = base.where("themeId", "==", themeId);
     }
     if (needsReviewParam === "true") {
-      query = query.where("needsReview", "==", true);
+      base = base.where("needsReview", "==", true);
     } else if (needsReviewParam === "false") {
-      query = query.where("needsReview", "==", false);
+      base = base.where("needsReview", "==", false);
+    }
+
+    let query: FirebaseFirestore.Query = base;
+    if (statusParam && STATUSES.includes(statusParam)) {
+      query = query.where("status", "==", statusParam);
     }
 
     // Ordena por updatedAt desc para mostrar os mais recentes primeiro
@@ -102,7 +107,24 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({ ok: true, items, total: items.length }, { status: 200 });
+    // Contagens REAIS da coleção (agregação server-side, barata) — antes o
+    // cabeçalho usava items.length e ficava preso ao teto da página.
+    const [totalAgg, pendingAgg, publishedAgg] = await Promise.all([
+      base.count().get(),
+      base.where("status", "==", "pending_review").count().get(),
+      base.where("status", "==", "published").where("isActive", "==", true).count().get(),
+    ]);
+
+    const counts = {
+      total: totalAgg.data().count,
+      pending: pendingAgg.data().count,
+      published: publishedAgg.data().count,
+    };
+
+    return NextResponse.json(
+      { ok: true, items, counts, shown: items.length, total: counts.total },
+      { status: 200 }
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro ao listar flashcards.";
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
