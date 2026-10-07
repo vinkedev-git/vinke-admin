@@ -203,14 +203,19 @@ export async function POST(req: NextRequest) {
   if ("error" in authCheck) return authCheck.error;
 
   const baseUrl = process.env.EDUZZ_API_BASE_URL || "https://api.eduzz.com";
-  const token =
+  // Vários tokens separados por vírgula: conta Eduzz antiga (CPF) + conta Lastro (CNPJ).
+  const tokens = (
     process.env.EDUZZ_USER_TOKEN ||
     process.env.EDUZZ_PERSONAL_TOKEN ||
     process.env.EDUZZ_API_TOKEN ||
     process.env.EDUZZ_BEARER_TOKEN ||
-    "";
+    ""
+  )
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
 
-  if (!token) {
+  if (tokens.length === 0) {
     return NextResponse.json(
       {
         ok: false,
@@ -222,7 +227,9 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const products = await fetchAllEduzzProducts(baseUrl, token);
+    const products = (
+      await Promise.all(tokens.map((t) => fetchAllEduzzProducts(baseUrl, t)))
+    ).flat();
     const snap = await adminDb.collection("catalog_planos").get();
     const byProductId = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
 

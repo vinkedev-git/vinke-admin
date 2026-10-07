@@ -9,6 +9,8 @@ type RecordData = Record<string, unknown>;
 
 type EduzzSubscription = {
   id: string;
+  /** token da conta Eduzz de onde a assinatura veio (para buscar as faturas) */
+  apiToken?: string;
   status: string;
   createdAt: Date | null;
   updatedAt: Date | null;
@@ -564,7 +566,7 @@ async function fetchAllSubscriptions(token: string, startDate: Date, endDate: Da
       break;
     }
 
-    subscriptions.push(...batch);
+    subscriptions.push(...batch.map((item) => ({ ...item, apiToken: token })));
 
     const totalPages = pickNumber(
       payload.pages ??
@@ -921,14 +923,19 @@ export async function POST(req: NextRequest) {
   const authCheck = await requireAdmin(req);
   if ("error" in authCheck) return authCheck.error;
 
-  const token =
+  // Vários tokens separados por vírgula: conta Eduzz antiga (CPF) + conta Lastro (CNPJ).
+  const tokens = (
     process.env.EDUZZ_USER_TOKEN ||
     process.env.EDUZZ_PERSONAL_TOKEN ||
     process.env.EDUZZ_API_TOKEN ||
     process.env.EDUZZ_BEARER_TOKEN ||
-    "";
+    ""
+  )
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
 
-  if (!token) {
+  if (tokens.length === 0) {
     return NextResponse.json(
       {
         ok: false,
@@ -965,7 +972,9 @@ export async function POST(req: NextRequest) {
     const eventByEmail = new Map(
       eventCandidates.map((candidate) => [candidate.email, candidate] as const)
     );
-    const rawSalesCandidates = await fetchPaidSalesCandidates(token, rangeStart);
+    const rawSalesCandidates = (
+      await Promise.all(tokens.map((t) => fetchPaidSalesCandidates(t, rangeStart)))
+    ).flat();
 
     // Para cada e-mail, mantem APENAS o registro mais recente (por paidAt).
     // Assim, se houve venda paga seguida de reembolso, o reembolso vence — e
@@ -986,7 +995,9 @@ export async function POST(req: NextRequest) {
     }
     const salesCandidates = Array.from(latestByEmail.values());
 
-    const subscriptions = await fetchAllSubscriptions(token, rangeStart, rangeEnd);
+    const subscriptions = (
+      await Promise.all(tokens.map((t) => fetchAllSubscriptions(t, rangeStart, rangeEnd)))
+    ).flat();
     let scanned = 0;
     let imported = 0;
     let createdUsers = 0;
@@ -1146,7 +1157,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      const invoices = await fetchSubscriptionInvoices(subscription.id, token);
+      const invoices = await fetchSubscriptionInvoices(subscription.id, subscription.apiToken ?? tokens[0]);
       const latestPaid = invoices
         .filter((invoice) => isPaidInvoice(invoice.status) || hasPaymentEvidence(invoice))
         .sort((a, b) => {
