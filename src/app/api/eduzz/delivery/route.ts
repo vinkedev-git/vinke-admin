@@ -432,8 +432,15 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const APP_URL = process.env.APP_URL || "";
-  const EDUZZ_WEBHOOK_SECRET =
-    process.env.EDUZZ_WEBHOOK_SECRET || process.env.EDUZZ_ORIGIN_SECRET || "";
+  // Aceita vários secrets separados por vírgula: a conta Eduzz antiga (CPF do
+  // David, assinaturas já existentes) e a nova (CNPJ Lastro) coexistem até as
+  // assinaturas antigas expirarem.
+  const EDUZZ_WEBHOOK_SECRETS = (
+    process.env.EDUZZ_WEBHOOK_SECRET || process.env.EDUZZ_ORIGIN_SECRET || ""
+  )
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
   const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "";
 
@@ -453,19 +460,20 @@ export async function POST(req: NextRequest) {
     const receivedSecret = getSecretFromRequest(req, rawBody);
     const hasSecret = Boolean(receivedSecret) || Boolean(signature);
 
-    if (EDUZZ_WEBHOOK_SECRET) {
-      const expected = createHmac("sha256", EDUZZ_WEBHOOK_SECRET)
-        .update(rawText)
-        .digest("hex");
+    if (EDUZZ_WEBHOOK_SECRETS.length > 0) {
       const sigBuf = Buffer.from(signature);
-      const expBuf = Buffer.from(expected);
-      const signatureOk =
-        signature.length > 0 &&
-        sigBuf.length === expBuf.length &&
-        timingSafeEqual(sigBuf, expBuf);
-      const plainOk = Boolean(receivedSecret) && receivedSecret === EDUZZ_WEBHOOK_SECRET;
+      const authorized = EDUZZ_WEBHOOK_SECRETS.some((secret) => {
+        const expected = createHmac("sha256", secret).update(rawText).digest("hex");
+        const expBuf = Buffer.from(expected);
+        const signatureOk =
+          signature.length > 0 &&
+          sigBuf.length === expBuf.length &&
+          timingSafeEqual(sigBuf, expBuf);
+        const plainOk = Boolean(receivedSecret) && receivedSecret === secret;
+        return signatureOk || plainOk;
+      });
 
-      if (!signatureOk && !plainOk) {
+      if (!authorized) {
         return NextResponse.json(
           { ok: false, error: "Unauthorized", debug: { envelopeId, event } },
           { status: 401 }
