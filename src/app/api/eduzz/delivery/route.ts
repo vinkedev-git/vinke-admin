@@ -5,6 +5,7 @@ export const dynamic = "force-dynamic";
 import { createHmac, timingSafeEqual } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import { sendMetaPurchase } from "@/lib/metaCapi";
 import { Resend } from "resend";
 
 type EduzzEnvelope = {
@@ -838,6 +839,17 @@ export async function POST(req: NextRequest) {
         .doc("main")
         .set(profilePayload, { merge: true });
 
+      // Meta Conversions API: Purchase pelo servidor (event_id = fatura, deduplica
+      // com o Pixel do navegador se a Eduzz também disparar). Nunca bloqueia a entrega.
+      const metaPurchase = await sendMetaPurchase({
+        email,
+        eventId: String(invoiceId ?? envelopeId),
+        value: amountPaid,
+        currency,
+        contentName: planMatch.planTitle,
+        eventTime: paidAt ?? new Date(),
+      });
+
       await db.collection("eduzz_events").doc(envelopeId).set(
         {
           processed: true,
@@ -847,6 +859,7 @@ export async function POST(req: NextRequest) {
           welcomeEmailStatus: welcomeEmailStatus?.status ?? "skipped",
           welcomeEmailReason: welcomeEmailStatus?.reason ?? null,
           welcomeEmailError: welcomeEmailStatus?.error ?? null,
+          metaPurchase: metaPurchase.ok ? "sent" : `failed: ${metaPurchase.error ?? metaPurchase.status ?? "?"}`,
         },
         { merge: true }
       );
