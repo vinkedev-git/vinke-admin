@@ -81,7 +81,9 @@ function invoiceStatusLabel(value: string) {
 function formatDateInput(value: unknown) {
   const parsed = dateFromUnknown(value);
   if (!parsed) return "";
-  return parsed.toISOString().slice(0, 10);
+  // Formata no fuso de Brasília: a validade é gravada como 23:59:59 BRT,
+  // e toISOString() (UTC) devolveria o dia seguinte no input.
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(parsed);
 }
 
 export default function EditarAssinaturaPage() {

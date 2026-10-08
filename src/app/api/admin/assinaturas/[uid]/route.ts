@@ -22,6 +22,18 @@ function pickNumber(value: unknown) {
   return null;
 }
 
+// A validade vem do input date como "AAAA-MM-DD". new Date() interpretaria
+// isso como meia-noite UTC — que no Brasil (UTC-3) é 21h do DIA ANTERIOR,
+// fazendo o aluno perder um dia de acesso e a tela exibir a data errada.
+// Guardamos o FIM do dia no fuso de Brasília.
+function fimDoDiaBRT(yyyyMmDd: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(yyyyMmDd)) {
+    const d = new Date(yyyyMmDd);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  return new Date(`${yyyyMmDd}T23:59:59-03:00`);
+}
+
 export async function GET(
   req: NextRequest,
   context: { params: Promise<{ uid: string }> }
@@ -112,7 +124,7 @@ export async function PATCH(
         productTitle: productTitle || null,
         invoiceStatus: invoiceStatus || null,
         amountPaid,
-        validUntil: validUntil ? new Date(validUntil) : null,
+        validUntil: validUntil ? fimDoDiaBRT(validUntil) : null,
         updatedAt: new Date(),
       },
       { merge: true }
