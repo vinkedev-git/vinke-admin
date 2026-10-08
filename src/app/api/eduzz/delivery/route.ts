@@ -377,17 +377,24 @@ async function resolvePlanMatch(params: {
 // Validade por plano: mensal renova a cada fatura paga (+1 mês, com 7 dias de
 // tolerância para a próxima cobrança), anual +12 meses, passe reta final tem
 // data fixa (30/11/2026 23:59 no horário de Brasília). Default: 12 meses.
+// Fim do dia civil (23:59:59) no fuso de Brasília — sem isso a validade
+// herdava a HORA do pagamento e o acesso caía no meio do dia do vencimento.
+function fimDoDiaBRT(d: Date): Date {
+  const diaBR = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(d);
+  return new Date(`${diaBR}T23:59:59-03:00`);
+}
+
 function computeValidUntil(planCode: string | null, base: Date): Date {
   const code = String(planCode ?? "");
   if (code === "mensal") {
     const d = addMonths(base, 1);
     d.setDate(d.getDate() + 7);
-    return d;
+    return fimDoDiaBRT(d);
   }
   if (code === "reta-final-2026") {
     return new Date("2026-12-01T02:59:59.000Z");
   }
-  return addMonths(base, 12);
+  return fimDoDiaBRT(addMonths(base, 12));
 }
 
 function htmlEmail(params: { appName: string; createPasswordUrl: string; loginUrl: string }) {
