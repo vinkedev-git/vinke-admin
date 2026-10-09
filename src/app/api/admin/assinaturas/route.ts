@@ -109,10 +109,15 @@ export async function GET(req: NextRequest) {
           amountPaid:
             typeof ent.amountPaid === "number" && Number.isFinite(ent.amountPaid) ? ent.amountPaid : null,
           validUntilRaw: toDateInput(ent.validUntil ?? null),
+          // Ordena pela ENTRADA da assinatura (compra/criação), não pelo
+          // vencimento — assim a venda mais recente aparece no topo, que é
+          // o que o admin quer ver ao abrir a tela.
           sortSeconds:
-            validUntilSeconds ||
+            secondsFromUnknown(ent.createdAt) ||
             secondsFromUnknown(userData.createdAt) ||
-            secondsFromUnknown(userData.updatedAt),
+            secondsFromUnknown(ent.updatedAt) ||
+            secondsFromUnknown(userData.updatedAt) ||
+            validUntilSeconds,
         } satisfies AssinaturaItem;
       })
     );
