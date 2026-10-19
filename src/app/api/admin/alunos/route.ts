@@ -71,7 +71,8 @@ export async function GET(req: NextRequest) {
             "Aluno sem nome",
           cpf: String(profile.document ?? "").trim() || "—",
           cellphone:
-            String(profile.phone ?? profile.cellphone ?? "").trim() || "—",
+            String(profile.phone ?? profile.cellphone ?? userData.phone ?? userData.cellphone ?? "").trim() || "—",
+          aceitaContato: userData.aceitaContatoWhatsapp === true,
           email:
             String(userData.email ?? entitlement.email ?? "").trim() || "—",
           active: hasActiveEntitlement(entitlement),
