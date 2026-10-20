@@ -31,7 +31,11 @@ COMPARTILHADO = re.compile(
 # Alguns cadernos escrevem "A\ttexto" e outros "A \ttexto" (letra, espaço,
 # tabulação) — sem tolerar o espaço, a alternativa A de 2020 não era detectada e
 # o comando, que começa com o artigo "A", tomava o lugar dela.
-ALTERNATIVA = re.compile(r'^([A-E])[ ]{0,3}\t(.*)$', re.S)
+# Separador depois da letra varia MUITO entre cadernos: "A\ttexto",
+# "A \ttexto" e até "C  texto" (dois espaços, sem tabulação) na mesma prova.
+# Exigir dois espaços quando não há tabulação evita confundir com uma frase
+# que comece por "A " (artigo).
+ALTERNATIVA = re.compile(r'^([A-E])(?:[ ]{0,3}\t|[ ]{2,})[ ]*(\S.*)$', re.S)
 # Alternativa cujo conteúdo é uma FIGURA: a letra vem sozinha na linha e a
 # imagem aparece logo depois (comum em gráficos, estruturas e heredogramas).
 ALTERNATIVA_IMG = re.compile(r'^\s*([A-E])\s*$')
@@ -49,8 +53,11 @@ TERMINADOR = re.compile(
 # Fórmula desenhada com glifos posicionados: a extração devolve caracteres de
 # controle soltos. Um "parágrafo" só de glifo não carrega nada legível.
 SO_GLIFO = re.compile(r'^[\x00-\x08\x0b-\x1f\ue000-\uf8ff\s]+$')
-CARIMBO = re.compile(r'(?:ENE[MN]\s?\d{4}){2,}')  # marca d'água (o PDF tem "ENEN" com N)
-SO_CARIMBO = re.compile(r'^(?:ENE[MN]\s?\d{4})+$')  # sobra isolada da marca
+# A marca d'água vem como "ENEM 2022 ENEM 2022 ENEM 2022 ..." — COM espaço
+# entre as repetições. Sem o \s* final o grupo não encadeava e a faixa inteira
+# escapava para dentro do enunciado (48 questões da reaplicação).
+CARIMBO = re.compile(r'(?:ENE[MN]\s?\d{4}\s*){2,}')  # marca d'água (o PDF tem "ENEN" com N)
+SO_CARIMBO = re.compile(r'^(?:ENE[MN]\s?\d{4}\s*)+$')  # sobra isolada da marca
 
 def coluna(x0, meio):
     return 0 if x0 < meio else 1
@@ -187,7 +194,13 @@ def recupera_alternativas(q, alts, alts_img, pos_alt, enun, seq_enun):
         m = LETRA_ESPACO.match(cont)
         if m:
             cands.append((i, m.group(1), m.group(2).strip(), pos))
-    # procura A,B,C,D,E em ordem, todas no mesmo x (tolerância de 3pt)
+    # procura A,B,C,D,E em ordem, todas no mesmo x (tolerância de 3pt).
+    # Pegar a PRIMEIRA sequência válida elegia o artigo "A" de uma frase do
+    # comando ("A fórmula correta é") e a alternativa A verdadeira, logo
+    # abaixo, era pulada. Agora todas as sequências válidas são pontuadas e
+    # vence a mais coerente: A com tamanho parecido com o das irmãs e vão
+    # vertical A→B parecido com os vãos seguintes.
+    corridas = []
     for ini in range(len(cands)):
         se, x0 = [], cands[ini][3][1][0]
         alvo = 0
@@ -198,15 +211,51 @@ def recupera_alternativas(q, alts, alts_img, pos_alt, enun, seq_enun):
                     break
         if alvo != 5:
             continue
+        tams_s = sorted(len(c[2]) for c in se[1:])
+        med_s = tams_s[len(tams_s) // 2]
+        nota = abs(len(se[0][2]) - med_s) / max(med_s, 1)
+        ys_s = [c[3][1][1] for c in se]
+        vaos_s = [b - a2 for a2, b in zip(ys_s, ys_s[1:])]
+        if len(vaos_s) >= 2:
+            resto_s = sorted(vaos_s[1:])
+            tip_s = resto_s[len(resto_s) // 2]
+            if tip_s:
+                nota += abs(vaos_s[0] - tip_s) / tip_s
+        corridas.append((nota, ini, se))
+    corridas.sort(key=lambda t: (t[0], t[1]))
+    for _nota, _ini, se in corridas:
+        # TRAVA: "A" pode ser o artigo de uma frase do enunciado ("A
+        # concorrência pode até ser saudável…"). Dois sinais denunciam o
+        # falso positivo — o texto do A destoa em tamanho das irmãs, ou o vão
+        # vertical entre A e B destoa dos vãos seguintes. Na dúvida, desiste:
+        # é melhor a questão ficar incompleta (e ser recortada como figura)
+        # do que o enunciado ser engolido.
+        tams = sorted(len(c[2]) for c in se[1:])
+        mediana = tams[len(tams) // 2]
+        if len(se[0][2]) > mediana * 2 + 30:
+            continue
+        ys = [c[3][1][1] for c in se]
+        vaos = [b - a2 for a2, b in zip(ys, ys[1:])]
+        if len(vaos) >= 2:
+            resto = sorted(vaos[1:])
+            tipico = resto[len(resto) // 2]
+            if tipico and vaos[0] > tipico * 2.2:
+                continue
         corte = se[0][0]
         for _, L, texto, pos in se:
             alts[L] = texto
             pos_alt[L] = pos
-        # o que estava sendo tratado como enunciado a partir daí não é
-        sobra = sum(1 for t, *_ in q["seq"][corte:] if t == "txt")
-        if sobra:
-            del enun[len(enun) - min(sobra, len(enun)):]
-            del seq_enun[len(seq_enun) - min(sobra, len(seq_enun)):]
+        # Reconstrói o enunciado com o que vem ANTES da primeira alternativa.
+        # (Apagar N itens do fim de enun, como antes, estourava quando havia
+        # mais linhas de alternativa que de enunciado — e zerava o enunciado.)
+        enun.clear(); seq_enun.clear()
+        for tipo, cont, bloco, pos in q["seq"][:corte]:
+            if tipo == "img":
+                enun.append(f"[[IMG:{cont}]]")
+                seq_enun.append(("img", cont, None, None))
+            else:
+                enun.append(cont)
+                seq_enun.append(("txt", cont, bloco, pos))
         q["alternativasRecuperadas"] = True
         return
 
@@ -291,6 +340,15 @@ def parse(pdf, saida):
             # bloco de alternativas ou ela é o "A" que o abre, e (b) ela está
             # na margem esquerda da coluna. Sem isso, o "E" de E₂/E₁ dentro de
             # uma fórmula abria o bloco e o resto do enunciado virava lixo.
+            # O caderno DESENHA a letra duas vezes: uma na linha "A\ttexto" e
+            # outra como glifo solto, na mesma altura. Reabrir a alternativa
+            # nesse glifo zerava o texto já lido e sobrava só a continuação
+            # ("nesses lugares." no lugar de "ao aconchego ... nesses lugares.");
+            # quando o glifo caía fora da margem, ele era anexado no fim
+            # ("...renováveis. A"). Uma letra só abre UMA vez por questão.
+            mi_dup = ALTERNATIVA_IMG.match(cont)
+            if mi_dup and em_alts and mi_dup.group(1) in alts:
+                continue
             m = ALTERNATIVA.match(cont)
             if not m:
                 mi = ALTERNATIVA_IMG.match(cont)
