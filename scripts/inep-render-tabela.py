@@ -7,13 +7,15 @@ tabela como figura: é o que o aluno vê na prova, sem risco de reordenação.
 
 Uso: python render_tabela.py <prova.pdf> <questoes.json> <dir> <num> <y0> <y1> <pos> <qtd>
 """
-import fitz, json, sys, os
+import fitz, json, re, sys, os
 
 def run(pdf, arq, dir_imgs, num, y0, y1, pos, qtd):
     doc = fitz.open(pdf); qs = json.load(open(arq))
     q = next(x for x in qs if x["numero"] == num)
+    # 2024 escreve "QUESTÃO 150" e 2025 escreve "Questão 150"
+    rx = re.compile(rf'QUEST[ÃA]O\s*0*{num}\b', re.I)
     alvo = next((p for p in range(doc.page_count)
-                 if f"Questão {num}" in doc[p].get_text()), None)
+                 if rx.search(doc[p].get_text())), None)
     if alvo is None:
         print(f"Q{num}: página não encontrada"); return
     pag = doc[alvo]

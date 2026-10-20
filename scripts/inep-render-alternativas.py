@@ -33,10 +33,30 @@ def fundo_do_conteudo(pag, topo, limite):
     return (max(fundos) + 1.5) if fundos else None
 
 
-def faixa_coluna(pag, x0):
-    """Extremo direito da coluna onde a alternativa está."""
+def faixa_coluna(pag, x0, topo=None, base=None):
+    """Extremo direito do recorte.
+
+    Assumir a largura da coluna corta alternativa que atravessa o meio da
+    página (acontece quando a questão ocupa a largura toda). Quando a faixa
+    vertical é conhecida, medimos até onde o conteúdo realmente vai.
+    """
     meio = pag.rect.width / 2
-    return (meio - 6) if x0 < meio else (pag.rect.width - 26)
+    limite = pag.rect.width - 20
+    if topo is None or base is None:
+        return (meio - 6) if x0 < meio else limite
+    direita = x0
+    for bl in pag.get_text("dict")["blocks"]:
+        if bl["type"] == 1:
+            continue
+        for ln in bl.get("lines", []):
+            y0, bx0, bx1 = ln["bbox"][1], ln["bbox"][0], ln["bbox"][2]
+            if topo <= y0 < base and bx0 >= x0 - 2:
+                direita = max(direita, bx1)
+    for dr in pag.get_drawings():
+        r = dr["rect"]
+        if topo <= r.y0 < base and r.x0 >= x0 - 2:
+            direita = max(direita, r.x1)
+    return min(max(direita + 6, x0 + 60), limite)
 
 def render(pdf, arq_json, dir_imgs, numeros):
     doc = fitz.open(pdf)
@@ -82,7 +102,8 @@ def render(pdf, arq_json, dir_imgs, numeros):
             # abaixo dele e saía cortado. O rodapé real começa perto de 748.
             limite = proxima[L] if proxima[L] else min(by0 + passo * 1.5, 742.0)
             base = fundo_do_conteudo(pag, topo, limite) or limite
-            rect = fitz.Rect(bx0 + 11, topo, faixa_coluna(pag, bx0), base) & pag.rect
+            rect = fitz.Rect(bx0 + 11, topo,
+                             faixa_coluna(pag, bx0, topo, base), base) & pag.rect
             if rect.height < 8 or rect.width < 20:
                 print(f"  Q{q['numero']} {L}: região degenerada, pulada"); continue
             pix = pag.get_pixmap(clip=rect, dpi=200)

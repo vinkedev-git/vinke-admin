@@ -13,15 +13,25 @@ import fitz, re, json, sys, hashlib, os
 # x≈23 e a direita em x≈286, numa página de 567pt — 283 separa com folga.
 # (Valor fixo de 291 jogava o topo da coluna direita para a esquerda e
 # embaralhava a ordem das questões.)
-RODAPE = 730.0        # abaixo disso é rodapé
-TOPO = 60.0           # acima disso é cabeçalho
-MARCADOR = re.compile(r'^\s*Quest[ãa]o\s*(\d{1,3})\s*$')
+RODAPE = 738.0        # abaixo disso é rodapé. 730 cortava a continuação da
+                      # última alternativa em 2012 (y=731); os rodapés de
+                      # todos os cadernos conferidos começam em 740 ou mais.
+TOPO = 45.0           # acima disso é cabeçalho. 60 cortava o marcador das
+                      # provas de 2012 (y=51) e 2015 (y=57); nessa faixa só
+                      # sobram código de barras e marca d'água, já filtrados.
+# O caderno de 2025 escreve "Questão 04" em Calibri-Bold 11; o de 2024 usa
+# "QUESTÃO 04" em Arial-BoldMT 10,8. Daí o regex ser insensível a caixa e o
+# teste de fonte olhar só "negrito em corpo ~11".
+MARCADOR = re.compile(r'^\s*QUEST[ÃA]O\s*(\d{1,3})\s*$', re.I)
 # "Texto para as Questões de 06 a 10." — um texto único que serve a várias
 # questões; aparece UMA vez no caderno e as questões seguintes só trazem o
 # comando. Sem isto, essas questões ficam sem enunciado.
 COMPARTILHADO = re.compile(
     r'Texto\s+para\s+as?\s+Quest(?:ões|ão)\s+(?:de\s+)?(\d{1,3})(?:\s*(?:a|e)\s*(\d{1,3}))?', re.I)
-ALTERNATIVA = re.compile(r'^([A-E])\t(.*)$', re.S)
+# Alguns cadernos escrevem "A\ttexto" e outros "A \ttexto" (letra, espaço,
+# tabulação) — sem tolerar o espaço, a alternativa A de 2020 não era detectada e
+# o comando, que começa com o artigo "A", tomava o lugar dela.
+ALTERNATIVA = re.compile(r'^([A-E])[ ]{0,3}\t(.*)$', re.S)
 # Alternativa cujo conteúdo é uma FIGURA: a letra vem sozinha na linha e a
 # imagem aparece logo depois (comum em gráficos, estruturas e heredogramas).
 ALTERNATIVA_IMG = re.compile(r'^\s*([A-E])\s*$')
@@ -34,7 +44,8 @@ LIXO = re.compile(r'^(?:\*[0-9A-Z]{6,}\*|[\s\ufffc]*)$')
 TERMINADOR = re.compile(
     r'^(?:PROPOSTA DE REDA[ÇC][ÃA]O|INSTRU[ÇC][ÕO]ES PARA A REDA[ÇC][ÃA]O'
     r'|REDA[ÇC][ÃA]O|CI[ÊE]NCIAS (?:HUMANAS|DA NATUREZA)[^\n]*'
-    r'|MATEM[ÁA]TICA E SUAS[^\n]*|LINGUAGENS, C[ÓO]DIGOS[^\n]*)$', re.I)
+    r'|MATEM[ÁA]TICA E SUAS[^\n]*|LINGUAGENS, C[ÓO]DIGOS[^\n]*'
+    r'|Quest[õo]es de \d{1,3} a \d{1,3}[^\n]*)$', re.I)
 # Fórmula desenhada com glifos posicionados: a extração devolve caracteres de
 # controle soltos. Um "parágrafo" só de glifo não carrega nada legível.
 SO_GLIFO = re.compile(r'^[\x00-\x08\x0b-\x1f\ue000-\uf8ff\s]+$')
@@ -96,7 +107,8 @@ def itens_da_pagina(doc, pno, dir_img):
             if not texto or LIXO.match(texto) or SO_CARIMBO.match(texto) \
                or SO_GLIFO.match(texto):
                 continue
-            negrito11 = any(sp["font"] == "Calibri-Bold" and abs(sp["size"] - 11) < 0.6
+            # 2025: Calibri-Bold 11 · 2024: Arial-BoldMT 10,8 · 2023: Arial-BoldMT 9,8
+            negrito11 = any("Bold" in sp["font"] and 9.0 <= sp["size"] <= 12.5
                             for sp in ln["spans"])
             linhas.append({"x": lx0, "y": ly0, "x1": lx1, "texto": texto,
                            "bloco": (pno, ibl), "bbox": ln["bbox"], "negrito11": negrito11})
@@ -113,7 +125,16 @@ def itens_da_pagina(doc, pno, dir_img):
     frac = len(dir_ys) / len(linhas) if linhas else 0
     altura = (max(todos_ys) - min(todos_ys)) if len(todos_ys) > 1 else 0
     cobertura = ((max(dir_ys) - min(dir_ys)) / altura) if len(dir_ys) > 1 and altura else 0
-    coluna_unica = not (frac >= 0.15 and cobertura >= 0.5)
+    # Sinal decisivo: se existe um MARCADOR de questão na metade direita, a
+    # página tem mesmo duas colunas — uma tabela larga nunca põe "QUESTÃO NN"
+    # ali. Quando não há marcador (p.ex. a página só tem alternativas à
+    # direita), caímos no par fração+cobertura, agora com corte mais alto.
+    # Fração e cobertura sozinhas não separam: medindo os 4 cadernos, os
+    # valores formam uma faixa contínua de 31% a 58% sem nenhum vão claro.
+    marcador_na_direita = any(
+        l["x"] > meio and l["negrito11"] and MARCADOR.match(l["texto"])
+        for l in linhas)
+    coluna_unica = not (marcador_na_direita or (frac >= 0.30 and cobertura >= 0.55))
     col = lambda x: 0 if coluna_unica else coluna(x, meio)
 
     itens = []
@@ -150,6 +171,45 @@ def salva_imagem(doc, pno, bbox, dir_img, seq):
     caminho = os.path.join(dir_img, nome)
     pix.save(caminho)
     return nome, pix.width, pix.height
+
+# Plano B para alternativas que o fluxo normal não pegou. Em algumas questões
+# o separador depois da letra é ESPAÇO, não tabulação ("A a = 20; b = ...").
+# Aceitar espaço em geral faria "A figura mostra…" virar alternativa, então
+# isto só roda quando a questão ficou com menos de 5 e exige a sequência
+# completa A→E alinhada no mesmo x.
+LETRA_ESPACO = re.compile(r'^([A-E])[\t ]\s*(\S.*)$', re.S)
+
+def recupera_alternativas(q, alts, alts_img, pos_alt, enun, seq_enun):
+    cands = []
+    for i, (tipo, cont, bloco, pos) in enumerate(q["seq"]):
+        if tipo != "txt" or not pos:
+            continue
+        m = LETRA_ESPACO.match(cont)
+        if m:
+            cands.append((i, m.group(1), m.group(2).strip(), pos))
+    # procura A,B,C,D,E em ordem, todas no mesmo x (tolerância de 3pt)
+    for ini in range(len(cands)):
+        se, x0 = [], cands[ini][3][1][0]
+        alvo = 0
+        for c in cands[ini:]:
+            if c[1] == "ABCDE"[alvo] and abs(c[3][1][0] - x0) < 3:
+                se.append(c); alvo += 1
+                if alvo == 5:
+                    break
+        if alvo != 5:
+            continue
+        corte = se[0][0]
+        for _, L, texto, pos in se:
+            alts[L] = texto
+            pos_alt[L] = pos
+        # o que estava sendo tratado como enunciado a partir daí não é
+        sobra = sum(1 for t, *_ in q["seq"][corte:] if t == "txt")
+        if sobra:
+            del enun[len(enun) - min(sobra, len(enun)):]
+            del seq_enun[len(seq_enun) - min(sobra, len(seq_enun)):]
+        q["alternativasRecuperadas"] = True
+        return
+
 
 def paragrafos(seq):
     """Agrupa linhas do mesmo bloco num parágrafo; imagem é item próprio."""
@@ -216,18 +276,34 @@ def parse(pdf, saida):
     # separa enunciado de alternativas
     for q in questoes:
         enun, alts, alts_img, seq_enun = [], {}, {}, []
+        # margem esquerda da questão: menor x entre as linhas de texto
+        xs = [p[1][0] for t, c, b, p in q["seq"] if t == "txt" and p]
+        margem = min(xs) if xs else 0.0
         letra, bloco_letra, em_alts = None, None, False
+        x_letra = y_letra = pagina_letra = None
         pos_alt = {}
         img_pendente = None            # a figura de uma alternativa vem ANTES
         for tipo, cont, bloco, pos in q["seq"]:            # da letra (letra ao lado)
             if tipo == "img":
                 img_pendente = cont
                 continue
-            m = ALTERNATIVA.match(cont) or ALTERNATIVA_IMG.match(cont)
+            # Uma letra SOZINHA na linha só é alternativa se (a) já estamos no
+            # bloco de alternativas ou ela é o "A" que o abre, e (b) ela está
+            # na margem esquerda da coluna. Sem isso, o "E" de E₂/E₁ dentro de
+            # uma fórmula abria o bloco e o resto do enunciado virava lixo.
+            m = ALTERNATIVA.match(cont)
+            if not m:
+                mi = ALTERNATIVA_IMG.match(cont)
+                na_margem = pos and pos[1][0] <= margem + 14
+                if mi and na_margem and (em_alts or mi.group(1) == "A"):
+                    m = mi
             if m:
                 letra = m.group(1)
                 texto_alt = (m.lastindex == 2 and m.group(2) or "").strip()
                 em_alts, bloco_letra = True, bloco
+                x_letra = pos[1][0] if pos else None
+                y_letra = pos[1][1] if pos else None
+                pagina_letra = pos[0] if pos else None
                 alts[letra] = texto_alt
                 if pos: pos_alt[letra] = pos
                 if not texto_alt and img_pendente:    # alternativa é a figura
@@ -238,7 +314,18 @@ def parse(pdf, saida):
                 enun.append(f"[[IMG:{img_pendente}]]")
                 seq_enun.append(("img", img_pendente, None, None))
                 img_pendente = None
-            if em_alts and letra and bloco == bloco_letra:
+            # Continuação da alternativa: mesmo bloco, ou linha RECUADA em
+            # relação à letra (em 2012 a continuação vem indentada e em outro
+            # bloco, e sem isto a alternativa saía cortada pela metade).
+            # Continuação recuada só vale na MESMA página e logo abaixo da
+            # letra. Sem esses limites, um cabeçalho centralizado de outra
+            # página ("Questões de 01 a 05 (opção espanhol)") era lido como
+            # continuação da última alternativa.
+            recuada = (pos and x_letra is not None and pagina_letra is not None
+                       and pos[0] == pagina_letra
+                       and pos[1][0] > x_letra + 8
+                       and 0 < pos[1][1] - y_letra < 40)
+            if em_alts and letra and (bloco == bloco_letra or recuada):
                 alts[letra] = (alts[letra] + " " + cont.strip()).strip()
             elif em_alts:
                 q.setdefault("descartadas", []).append(cont.strip())
@@ -249,6 +336,8 @@ def parse(pdf, saida):
             enun.append(f"[[IMG:{img_pendente}]]")
             seq_enun.append(("img", img_pendente, None, None))
         q["seq_enun"] = seq_enun
+        if len([L for L in "ABCDE" if alts.get(L, "").strip() or alts_img.get(L)]) < 5:
+            recupera_alternativas(q, alts, alts_img, pos_alt, enun, seq_enun)
         q["enunciado"] = "\n".join(enun).strip()
         q["paragrafos"] = paragrafos(q["seq_enun"])
         q["alternativas"] = alts
