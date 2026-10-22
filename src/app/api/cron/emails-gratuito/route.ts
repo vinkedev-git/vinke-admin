@@ -23,7 +23,10 @@ function autorizado(req: NextRequest) {
   return allowed.length > 0 && allowed.includes(token);
 }
 
-const diasParaEnem = () => Math.ceil((ENEM_DIA1.getTime() - Date.now()) / 86_400_000);
+const diasParaEnem = () => {
+  const dia = (ms: number) => Math.floor((ms - 3 * 3_600_000) / 86_400_000); // dias de calendário em Brasília
+  return dia(ENEM_DIA1.getTime()) - dia(Date.now());
+};
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 function checkout(base: string, email: string, nome: string | null, origem: string) {
@@ -65,7 +68,7 @@ async function montarD1(uid: string, email: string, nome: string | null) {
   const primeiro = (nome ?? "").split(" ")[0] || "aluno";
   let corpo = "";
   if (respondidas > 0) {
-    corpo += `<p>Ontem você respondeu <b>${respondidas}</b> questões oficiais e acertou <b>${certas}</b>. Suas 10 grátis de hoje já estão liberadas.</p>`;
+    corpo += `<p>Até agora você respondeu <b>${respondidas}</b> questões oficiais e acertou <b>${certas}</b>. Suas 10 grátis de hoje já estão liberadas.</p>`;
   } else {
     corpo += `<p>Sua conta está pronta e você tem <b>10 questões oficiais</b> liberadas hoje, com correção na hora.</p>`;
   }
