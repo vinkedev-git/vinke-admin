@@ -520,6 +520,40 @@ export async function POST(req: NextRequest) {
       { merge: true }
     );
 
+    // 2b) Cancelamento de CONTRATO (assinatura recorrente): o aluno mantém o
+    // acesso até validUntil (AlunoGuard já corta na data); aqui só marcamos
+    // que não renova, para o admin e os e-mails saberem.
+    const eventoNorm = normalizeToken(event);
+    if (action === "ignore" && eventoNorm.includes("contract") && (isCancelledLike(eventoNorm) || isCancelledLike(sourceData?.status) || isCancelledLike(sourceData?.contract?.status))) {
+      const emailContrato = normalizeEmail(
+        sourceData?.student?.email ??
+          sourceData?.customer?.email ??
+          sourceData?.buyer?.email ??
+          sourceData?.client?.email ??
+          sourceData?.email ??
+          null
+      );
+      let uidContrato: string | null = null;
+      if (emailContrato) {
+        try {
+          uidContrato = (await adminAuth.getUserByEmail(emailContrato)).uid;
+        } catch {
+          uidContrato = null;
+        }
+      }
+      if (uidContrato) {
+        await db.collection("entitlements").doc(uidContrato).set(
+          { autoRenew: false, contractCanceledAt: new Date(), lastEventId: envelopeId, updatedAt: new Date() },
+          { merge: true }
+        );
+      }
+      await db.collection("eduzz_events").doc(envelopeId).set(
+        { processed: Boolean(uidContrato), reason: uidContrato ? "contract_canceled" : "contract_canceled_user_not_found", email: emailContrato ?? null, uid: uidContrato },
+        { merge: true }
+      );
+      return NextResponse.json({ ok: true, processed: Boolean(uidContrato), action: "contract_canceled", uid: uidContrato }, { status: 200 });
+    }
+
     // 3) Só processa entitlement/usuario no invoice_paid (e invoice_canceled pra desativar)
     if (action === "ignore") {
       await db.collection("eduzz_events").doc(envelopeId).set(
