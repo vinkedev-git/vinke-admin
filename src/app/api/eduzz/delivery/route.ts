@@ -439,7 +439,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const APP_URL = process.env.APP_URL || "";
+  // Sem a variável, o e-mail de "crie sua senha" era pulado (missing_config:APP_URL). Default seguro.
+  const APP_URL = process.env.APP_URL || "https://aluno.vinke.app.br";
   // Aceita vários secrets separados por vírgula: a conta Eduzz antiga (CPF do
   // David, assinaturas já existentes) e a nova (CNPJ Lastro) coexistem até as
   // assinaturas antigas expirarem.
@@ -482,6 +483,12 @@ export async function POST(req: NextRequest) {
       });
 
       if (!authorized) {
+        // Registra a tentativa para o 401 não ser invisível no admin.
+        await adminDb
+          .collection("eduzz_events")
+          .doc(envelopeId || `unauth_${Date.now()}`)
+          .set({ event, processed: false, reason: "unauthorized_signature", receivedAt: new Date(), hasSignature: Boolean(signature) }, { merge: true })
+          .catch(() => {});
         return NextResponse.json(
           { ok: false, error: "Unauthorized", debug: { envelopeId, event } },
           { status: 401 }
