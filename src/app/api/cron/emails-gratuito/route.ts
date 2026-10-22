@@ -123,8 +123,22 @@ export async function GET(req: NextRequest) {
     pageToken = page.pageToken;
   } while (pageToken);
 
-  const alvoD1 = users.filter((u) => now - u.createdMs >= 24 * H && now - u.createdMs < 48 * H);
-  const alvoD3 = users.filter((u) => now - u.createdMs >= 72 * H && now - u.createdMs < 96 * H);
+  // Janelas largas (a marca d1SentAt/d3SentAt garante um envio só por pessoa):
+  // D+1 entre 24 h e 3 dias; D+3 entre 3 e 12 dias. Assim ninguém fica de fora
+  // se o cron falhar um dia ou se a pessoa entrou antes do cron existir.
+  const alvoD1 = users.filter((u) => now - u.createdMs >= 24 * H && now - u.createdMs < 72 * H);
+  const alvoD3 = users.filter((u) => now - u.createdMs >= 72 * H && now - u.createdMs < 12 * 24 * H);
+
+  // ?preview=d1|d3 devolve o HTML do primeiro candidato, sem enviar nada.
+  const preview = req.nextUrl.searchParams.get("preview");
+  if (preview === "d1" || preview === "d3") {
+    const u = (preview === "d1" ? alvoD1 : alvoD3)[0] ?? users[0];
+    if (!u) return NextResponse.json({ ok: false, error: "sem usuários" }, { status: 404 });
+    const msg = preview === "d1" ? await montarD1(u.uid, u.email, u.nome) : montarD3(u.email, u.nome);
+    return new NextResponse(`<!doctype html><title>${msg.subject}</title><p style="font:12px monospace;color:#888">assunto: ${esc(msg.subject)}</p>${msg.html}`, {
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
+  }
 
   const resultado = { d1: { enviados: 0, pulados: 0, erros: 0 }, d3: { enviados: 0, pulados: 0, erros: 0 }, dryRun };
 
