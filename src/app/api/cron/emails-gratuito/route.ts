@@ -6,6 +6,7 @@
 // Idempotente: marca users/{uid}/meta/emails.{d1SentAt,d3SentAt}. Respeita optOut.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
@@ -110,7 +111,10 @@ function montarD3(email: string, nome: string | null) {
 }
 
 export async function GET(req: NextRequest) {
-  if (!autorizado(req)) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  if (!autorizado(req)) {
+    await adminDb.collection("cron_runs").add({ job: "emails-gratuito", at: new Date(), unauthorized: true, hasAuthHeader: Boolean(req.headers.get("authorization")), ua: req.headers.get("user-agent") ?? null }).catch(() => {});
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
   const dryRun = req.nextUrl.searchParams.get("dryRun") === "1";
   const now = Date.now();
   const H = 3_600_000;
@@ -145,6 +149,7 @@ export async function GET(req: NextRequest) {
 
   const resultado = { d1: { enviados: 0, pulados: 0, erros: 0 }, d3: { enviados: 0, pulados: 0, erros: 0 }, dryRun };
 
+  const errosDetalhe: string[] = [];
   async function processar(lista: typeof users, tipo: "d1" | "d3") {
     for (const u of lista) {
       const r = resultado[tipo];
@@ -167,12 +172,31 @@ export async function GET(req: NextRequest) {
         r.enviados++;
       } catch (e) {
         r.erros++;
-        console.error(`[emails-gratuito] ${tipo} ${u.uid}:`, e instanceof Error ? e.message : e);
+        const msg = e instanceof Error ? e.message : String(e);
+        errosDetalhe.push(`${tipo} ${u.email}: ${msg.slice(0, 160)}`);
+        console.error(`[emails-gratuito] ${tipo} ${u.uid}:`, msg);
       }
     }
   }
 
+  const inicio = Date.now();
   await processar(alvoD1, "d1");
   await processar(alvoD3, "d3");
-  return NextResponse.json({ ok: true, candidatos: { d1: alvoD1.length, d3: alvoD3.length }, ...resultado });
+
+  // Registro da execução para auditoria sem depender dos logs da Vercel.
+  await adminDb
+    .collection("cron_runs")
+    .add({
+      job: "emails-gratuito",
+      at: new Date(),
+      dryRun,
+      candidatos: { d1: alvoD1.length, d3: alvoD3.length },
+      resultado,
+      errosDetalhe: errosDetalhe.slice(0, 20),
+      duracaoMs: Date.now() - inicio,
+      trigger: req.headers.get("user-agent")?.includes("vercel-cron") ? "vercel-cron" : "manual",
+    })
+    .catch(() => {});
+
+  return NextResponse.json({ ok: true, candidatos: { d1: alvoD1.length, d3: alvoD3.length }, ...resultado, errosDetalhe: errosDetalhe.slice(0, 5) });
 }
