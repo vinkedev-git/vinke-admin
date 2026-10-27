@@ -147,7 +147,13 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const resultado = { d1: { enviados: 0, pulados: 0, erros: 0 }, d3: { enviados: 0, pulados: 0, erros: 0 }, dryRun };
+  const resultado: {
+    d1: { enviados: number; pulados: number; erros: number };
+    d3: { enviados: number; pulados: number; erros: number };
+    dryRun: boolean;
+    limitePorExecucao?: number;
+    adiados?: { d1: number; d3: number };
+  } = { d1: { enviados: 0, pulados: 0, erros: 0 }, d3: { enviados: 0, pulados: 0, erros: 0 }, dryRun };
 
   const errosDetalhe: string[] = [];
   // Envia em lotes de 6 em paralelo: 148 e-mails sequenciais levaram 59,7 s,
@@ -188,9 +194,17 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Plano gratuito do Resend: 100 e-mails/dia (3.000/mês). Guardamos folga para
+  // os e-mails transacionais (senha, boas-vindas). Quem ficar de fora hoje entra
+  // amanhã, porque as janelas são largas e a marca d1/d3SentAt só é gravada no envio.
+  const MAX_POR_EXECUCAO = Number(process.env.EMAILS_GRATUITO_MAX ?? 80);
   const inicio = Date.now();
-  await processar(alvoD1, "d1");
-  await processar(alvoD3, "d3");
+  const fila1 = alvoD1.slice(0, MAX_POR_EXECUCAO);
+  const fila3 = alvoD3.slice(0, Math.max(0, MAX_POR_EXECUCAO - fila1.length));
+  resultado.limitePorExecucao = MAX_POR_EXECUCAO;
+  resultado.adiados = { d1: alvoD1.length - fila1.length, d3: alvoD3.length - fila3.length };
+  await processar(fila1, "d1");
+  await processar(fila3, "d3");
 
   // Registro da execução para auditoria sem depender dos logs da Vercel.
   await adminDb
