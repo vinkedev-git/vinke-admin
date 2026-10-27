@@ -150,8 +150,17 @@ export async function GET(req: NextRequest) {
   const resultado = { d1: { enviados: 0, pulados: 0, erros: 0 }, d3: { enviados: 0, pulados: 0, erros: 0 }, dryRun };
 
   const errosDetalhe: string[] = [];
+  // Envia em lotes de 6 em paralelo: 148 e-mails sequenciais levaram 59,7 s,
+  // no limite de 60 s do plano Hobby.
   async function processar(lista: typeof users, tipo: "d1" | "d3") {
-    for (const u of lista) {
+    const LOTE = 6;
+    for (let i = 0; i < lista.length; i += LOTE) {
+      await Promise.all(lista.slice(i, i + LOTE).map((u) => processarUm(u, tipo)));
+    }
+  }
+
+  async function processarUm(u: (typeof users)[number], tipo: "d1" | "d3") {
+    {
       const r = resultado[tipo];
       try {
         const [ent, meta] = await Promise.all([
@@ -162,7 +171,7 @@ export async function GET(req: NextRequest) {
         const m = (meta.data() ?? {}) as Record<string, unknown>;
         if (plan !== "gratuito" || m.optOut || m[`${tipo}SentAt`]) {
           r.pulados++;
-          continue;
+          return;
         }
         const msg = tipo === "d1" ? await montarD1(u.uid, u.email, u.nome) : montarD3(u.email, u.nome);
         if (!dryRun) {
