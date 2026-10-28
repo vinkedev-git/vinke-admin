@@ -516,7 +516,7 @@ export async function POST(req: NextRequest) {
         const rec = extrairRecuperacao(ehCarrinho ? "carrinho" : "fatura", event, sourceData);
         const res = rec ? await registrarRecuperacao(rec, ehCarrinho) : null;
         await adminDb.collection("eduzz_events").doc(envelopeId).set(
-          { processed: Boolean(res), reason: rec ? (ehCarrinho ? "carrinho_registrado" : "fatura_aberta_registrada") : "recuperacao_sem_email", email: rec?.email ?? null, recuperacaoId: res?.id ?? null, recuperacaoEmail: res?.enviado ?? false, recuperacaoErro: res?.erro ?? null },
+          { event, receivedAt: new Date(), processed: Boolean(res), reason: rec ? (ehCarrinho ? "carrinho_registrado" : "fatura_aberta_registrada") : "recuperacao_sem_email", email: rec?.email ?? null, recuperacaoId: res?.id ?? null, recuperacaoEmail: res?.enviado ?? false, recuperacaoErro: res?.erro ?? null, raw: safeJson(rawBody) },
           { merge: true }
         );
         return NextResponse.json({ ok: true, processed: Boolean(res), action: ehCarrinho ? "carrinho" : "fatura_aberta" }, { status: 200 });

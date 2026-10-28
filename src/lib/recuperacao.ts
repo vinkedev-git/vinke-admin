@@ -50,7 +50,8 @@ export type Recuperacao = {
 };
 
 /** Monta o registro a partir do payload da Eduzz. Retorna null se não houver e-mail. */
-const EMAIL_DE_TESTE = /@(example\.com|example\.org|test\.com|eduzz\.com|mailinator\.com)$/i;
+// Payloads de teste da Eduzz usam e-mails fictícios (alice.johnson@example.com, johndoe@gmail.com…).
+const EMAIL_DE_TESTE = /(@(example\.com|example\.org|test\.com|eduzz\.com|mailinator\.com)$|^(johndoe|janedoe|john\.doe|jane\.doe|teste|test|exemplo)@)/i;
 
 export function extrairRecuperacao(tipo: "carrinho" | "fatura", evento: string, sourceData: Src): Recuperacao | null {
   const email = emailDe(sourceData);
