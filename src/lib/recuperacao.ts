@@ -50,9 +50,13 @@ export type Recuperacao = {
 };
 
 /** Monta o registro a partir do payload da Eduzz. Retorna null se não houver e-mail. */
+const EMAIL_DE_TESTE = /@(example\.com|example\.org|test\.com|eduzz\.com|mailinator\.com)$/i;
+
 export function extrairRecuperacao(tipo: "carrinho" | "fatura", evento: string, sourceData: Src): Recuperacao | null {
   const email = emailDe(sourceData);
   if (!email || !email.includes("@")) return null;
+  // Payloads de teste da Eduzz vêm com e-mails fictícios: não registrar nem cobrar.
+  if (EMAIL_DE_TESTE.test(email)) return null;
   const { id, titulo } = produtoDe(sourceData);
   return {
     tipo,
@@ -157,7 +161,7 @@ export async function processarFilaRecuperacao(max: number): Promise<{ enviados:
     const criado = (r.createdAt as { toDate?: () => Date })?.toDate?.() ?? (r.createdAt as Date);
     const idade = agora - criado.getTime();
     if (idade < 3_600_000 || idade > 3 * 86_400_000) continue;
-    if (vistos.has(r.email)) continue; // uma por pessoa por dia
+    if (vistos.has(r.email) || EMAIL_DE_TESTE.test(r.email)) continue; // uma por pessoa por dia; nunca e-mail de teste
     vistos.add(r.email);
     try {
       const msg = montarEmailRecuperacao(r);
