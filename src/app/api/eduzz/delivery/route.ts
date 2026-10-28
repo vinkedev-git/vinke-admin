@@ -6,6 +6,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { sendMetaPurchase } from "@/lib/metaCapi";
+import { extrairRecuperacao, registrarRecuperacao, marcarRecuperacaoPaga } from "@/lib/recuperacao";
 import { Resend } from "resend";
 
 type EduzzEnvelope = {
@@ -503,6 +504,25 @@ export async function POST(req: NextRequest) {
         sourceData?.status,
         sourceData?.edz_fat_status
       ) || null;
+    // 2a) Recuperação de vendas — antes de qualquer mapeamento de ativar/desativar.
+    //  - Carrinho abandonado (Checkout Sun): e-mail na hora.
+    //  - Fatura criada / em recuperação (Pix ou boleto ainda não pago): entra na fila do cron.
+    //  Nunca mexe em entitlements.
+    {
+      const ev = normalizeToken(event);
+      const ehCarrinho = /abandon|cart|carrinho/.test(ev);
+      const ehFaturaAberta = /invoice_opened|invoice_recovering|invoice_created/.test(ev) && !isPaidLike(invoiceStatus);
+      if (ehCarrinho || ehFaturaAberta) {
+        const rec = extrairRecuperacao(ehCarrinho ? "carrinho" : "fatura", event, sourceData);
+        const res = rec ? await registrarRecuperacao(rec, ehCarrinho) : null;
+        await adminDb.collection("eduzz_events").doc(envelopeId).set(
+          { processed: Boolean(res), reason: rec ? (ehCarrinho ? "carrinho_registrado" : "fatura_aberta_registrada") : "recuperacao_sem_email", email: rec?.email ?? null, recuperacaoId: res?.id ?? null, recuperacaoEmail: res?.enviado ?? false, recuperacaoErro: res?.erro ?? null },
+          { merge: true }
+        );
+        return NextResponse.json({ ok: true, processed: Boolean(res), action: ehCarrinho ? "carrinho" : "fatura_aberta" }, { status: 200 });
+      }
+    }
+
     const action = mapEventToAction({ event, invoiceStatus });
     const db = adminDb;
 
@@ -886,6 +906,9 @@ export async function POST(req: NextRequest) {
         .collection("profile")
         .doc("main")
         .set(profilePayload, { merge: true });
+
+      // Fecha recuperações abertas desse e-mail (carrinho/fatura) — a venda aconteceu.
+      await marcarRecuperacaoPaga(email).catch(() => 0);
 
       // Meta Conversions API: Purchase pelo servidor (event_id = fatura, deduplica
       // com o Pixel do navegador se a Eduzz também disparar). Nunca bloqueia a entrega.

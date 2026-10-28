@@ -15,7 +15,7 @@ export const diasParaEnem = () => {
 };
 export const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-function checkout(base: string, email: string, nome: string | null, origem: string) {
+export function checkout(base: string, email: string, nome: string | null, origem: string) {
   const u = new URL(base);
   u.searchParams.set("email", email);
   if (nome) u.searchParams.set("name", nome);
@@ -24,7 +24,7 @@ function checkout(base: string, email: string, nome: string | null, origem: stri
   return u.toString();
 }
 
-function layout(titulo: string, corpo: string, ctaTexto: string, ctaUrl: string, rodape: string) {
+export function layout(titulo: string, corpo: string, ctaTexto: string, ctaUrl: string, rodape: string) {
   return `
   <div style="font-family:Arial,Helvetica,sans-serif;line-height:1.55;color:#0B0A21;max-width:560px;margin:0 auto;padding:24px 20px">
     <div style="font-weight:800;font-size:18px;letter-spacing:.01em;color:#6236F0;margin-bottom:18px">VINKE</div>

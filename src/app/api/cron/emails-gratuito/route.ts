@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { sendResendEmail } from "@/lib/resend";
 import { montarD1, montarD3, esc } from "@/lib/emailsGratuito";
+import { processarFilaRecuperacao } from "@/lib/recuperacao";
 
 function autorizado(req: NextRequest) {
   const auth = req.headers.get("authorization") ?? "";
@@ -64,6 +65,7 @@ export async function GET(req: NextRequest) {
     dryRun: boolean;
     limitePorExecucao?: number;
     adiados?: { d1: number; d3: number };
+    recuperacao?: number;
   } = { d1: { enviados: 0, pulados: 0, erros: 0 }, d3: { enviados: 0, pulados: 0, erros: 0 }, dryRun };
 
   const errosDetalhe: string[] = [];
@@ -114,6 +116,10 @@ export async function GET(req: NextRequest) {
   const fila3 = alvoD3.slice(0, Math.max(0, MAX_POR_EXECUCAO - fila1.length));
   resultado.limitePorExecucao = MAX_POR_EXECUCAO;
   resultado.adiados = { d1: alvoD1.length - fila1.length, d3: alvoD3.length - fila3.length };
+  // Recuperação de faturas abertas primeiro: é quem já tentou comprar.
+  const recup = dryRun ? { enviados: 0, erros: [] as string[] } : await processarFilaRecuperacao(Math.min(20, MAX_POR_EXECUCAO));
+  resultado.recuperacao = recup.enviados;
+  errosDetalhe.push(...recup.erros);
   await processar(fila1, "d1");
   await processar(fila3, "d3");
 
