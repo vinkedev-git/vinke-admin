@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { buttonStyles } from "@/components/ui/Button";
 import { auth } from "@/lib/firebase";
 import { cn } from "@/lib/cn";
+import RetencaoCard from "@/components/admin/RetencaoCard";
 
 type ChartMode = "erros" | "questoes";
 
@@ -206,6 +207,8 @@ export default function AdminDashboardPage() {
             loading={loading}
           />
         </div>
+
+        <RetencaoCard />
 
         {/* Chart + side column */}
         <div className="mt-3 grid grid-cols-1 items-start gap-2.5 lg:grid-cols-[1.7fr_1fr]">

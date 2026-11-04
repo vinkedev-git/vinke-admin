@@ -11,7 +11,7 @@ export const maxDuration = 60;
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { sendResendEmail } from "@/lib/resend";
-import { montarD1, montarD3, esc } from "@/lib/emailsGratuito";
+import { montarD1, montarD3, montarRetorno, esc, vinkeAbertoAtivo } from "@/lib/emailsGratuito";
 import { processarFilaRecuperacao } from "@/lib/recuperacao";
 
 function autorizado(req: NextRequest) {
@@ -66,6 +66,7 @@ export async function GET(req: NextRequest) {
     limitePorExecucao?: number;
     adiados?: { d1: number; d3: number };
     recuperacao?: number;
+    retorno?: { candidatos: number; enviados: number; erros: number };
   } = { d1: { enviados: 0, pulados: 0, erros: 0 }, d3: { enviados: 0, pulados: 0, erros: 0 }, dryRun };
 
   const errosDetalhe: string[] = [];
@@ -141,6 +142,57 @@ export async function GET(req: NextRequest) {
   errosDetalhe.push(...recup.erros);
   await processar(fila1, "d1");
   await processar(fila3, "d3");
+
+  // ── Vinke aberto: e-mail de retorno para quem parou há 3+ dias ──────────
+  // Usa a cota que sobrou do dia. Um por pessoa a cada 7 dias; quem parou há
+  // menos tempo vem primeiro (é quem volta mais fácil).
+  const restante = MAX_POR_EXECUCAO - fila1.length - fila3.length - recup.enviados;
+  if (vinkeAbertoAtivo() && restante > 0 && !dryRun) {
+    const D = 24 * H;
+    const retorno = { candidatos: 0, enviados: 0, erros: 0 };
+    const base = users.filter((u) => now - u.createdMs >= 3 * D);
+    const cands: { u: (typeof users)[number]; parado: number; lastMs: number }[] = [];
+    const LOTE = 20;
+    for (let i = 0; i < base.length; i += LOTE) {
+      const parte = base.slice(i, i + LOTE);
+      const infos = await Promise.all(
+        parte.map(async (u) => {
+          const [ent, st, em] = await Promise.all([
+            adminDb.doc(`entitlements/${u.uid}`).get(),
+            adminDb.doc(`users/${u.uid}/meta/stats`).get(),
+            adminDb.doc(`users/${u.uid}/meta/emails`).get(),
+          ]);
+          const plan = String(ent.data()?.plan ?? "");
+          const s = (st.data() ?? {}) as { totalAnswered?: unknown; lastAnswerAt?: { toMillis?: () => number } };
+          const m = (em.data() ?? {}) as { optOut?: unknown; retornoSentAt?: { toMillis?: () => number } };
+          const lastMs = s.lastAnswerAt?.toMillis?.() ?? 0;
+          const sentMs = m.retornoSentAt?.toMillis?.() ?? 0;
+          const ok = plan === "gratuito" && !m.optOut && Number(s.totalAnswered ?? 0) > 0 && lastMs > 0 && now - lastMs >= 3 * D && (!sentMs || now - sentMs >= 7 * D);
+          return ok ? { u, parado: Math.floor((now - lastMs) / D), lastMs } : null;
+        }),
+      );
+      for (const c of infos) if (c) cands.push(c);
+    }
+    cands.sort((a, b) => b.lastMs - a.lastMs);
+    retorno.candidatos = cands.length;
+    const fila = cands.slice(0, restante);
+    for (let i = 0; i < fila.length; i += 6) {
+      await Promise.all(
+        fila.slice(i, i + 6).map(async ({ u, parado }) => {
+          try {
+            const msg = await montarRetorno(u.uid, u.email, u.nome, parado);
+            await sendResendEmail({ to: u.email, subject: msg.subject, html: msg.html });
+            await adminDb.doc(`users/${u.uid}/meta/emails`).set({ retornoSentAt: new Date(), retornoSubject: msg.subject }, { merge: true });
+            retorno.enviados++;
+          } catch (e) {
+            retorno.erros++;
+            errosDetalhe.push(`retorno ${u.email}: ${(e instanceof Error ? e.message : String(e)).slice(0, 160)}`);
+          }
+        }),
+      );
+    }
+    resultado.retorno = retorno;
+  }
 
   // Registro da execução para auditoria sem depender dos logs da Vercel.
   await adminDb
