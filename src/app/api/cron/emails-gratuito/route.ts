@@ -78,20 +78,36 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Quem ainda não recebeu este e-mail (plano gratuito, sem opt-out, sem marca
+  // de envio). Filtrar ANTES de aplicar o teto: até 3/11 o teto cortava a lista
+  // bruta, e como a ordem dos usuários é sempre a mesma, os primeiros N já
+  // enviados ocupavam a cota todo dia e o D+3 só saía para 2–8 pessoas por dia
+  // enquanto 150+ ficavam "adiadas" até sair da janela.
+  async function elegiveis(lista: typeof users, tipo: "d1" | "d3") {
+    const ok: typeof users = [];
+    const LOTE = 20;
+    for (let i = 0; i < lista.length; i += LOTE) {
+      const parte = lista.slice(i, i + LOTE);
+      const flags = await Promise.all(
+        parte.map(async (u) => {
+          const [ent, meta] = await Promise.all([
+            adminDb.doc(`entitlements/${u.uid}`).get(),
+            adminDb.doc(`users/${u.uid}/meta/emails`).get(),
+          ]);
+          const plan = String(ent.data()?.plan ?? "");
+          const m = (meta.data() ?? {}) as Record<string, unknown>;
+          return plan === "gratuito" && !m.optOut && !m[`${tipo}SentAt`];
+        }),
+      );
+      parte.forEach((u, j) => (flags[j] ? ok.push(u) : resultado[tipo].pulados++));
+    }
+    return ok;
+  }
+
   async function processarUm(u: (typeof users)[number], tipo: "d1" | "d3") {
     {
       const r = resultado[tipo];
       try {
-        const [ent, meta] = await Promise.all([
-          adminDb.doc(`entitlements/${u.uid}`).get(),
-          adminDb.doc(`users/${u.uid}/meta/emails`).get(),
-        ]);
-        const plan = String(ent.data()?.plan ?? "");
-        const m = (meta.data() ?? {}) as Record<string, unknown>;
-        if (plan !== "gratuito" || m.optOut || m[`${tipo}SentAt`]) {
-          r.pulados++;
-          return;
-        }
         const msg = tipo === "d1" ? await montarD1(u.uid, u.email, u.nome) : montarD3(u.email, u.nome);
         if (!dryRun) {
           await sendResendEmail({ to: u.email, subject: msg.subject, html: msg.html });
@@ -112,10 +128,13 @@ export async function GET(req: NextRequest) {
   // amanhã, porque as janelas são largas e a marca d1/d3SentAt só é gravada no envio.
   const MAX_POR_EXECUCAO = Number(process.env.EMAILS_GRATUITO_MAX ?? 80);
   const inicio = Date.now();
-  const fila1 = alvoD1.slice(0, MAX_POR_EXECUCAO);
-  const fila3 = alvoD3.slice(0, Math.max(0, MAX_POR_EXECUCAO - fila1.length));
+  const [elegD1, elegD3] = await Promise.all([elegiveis(alvoD1, "d1"), elegiveis(alvoD3, "d3")]);
+  // O D+3 é o e-mail que vende; garante a ele pelo menos 40% da cota quando há fila.
+  const reservaD3 = Math.min(Math.floor(MAX_POR_EXECUCAO * 0.4), elegD3.length);
+  const fila1 = elegD1.slice(0, Math.max(0, MAX_POR_EXECUCAO - reservaD3));
+  const fila3 = elegD3.slice(0, Math.max(0, MAX_POR_EXECUCAO - fila1.length));
   resultado.limitePorExecucao = MAX_POR_EXECUCAO;
-  resultado.adiados = { d1: alvoD1.length - fila1.length, d3: alvoD3.length - fila3.length };
+  resultado.adiados = { d1: elegD1.length - fila1.length, d3: elegD3.length - fila3.length };
   // Recuperação de faturas abertas primeiro: é quem já tentou comprar.
   const recup = dryRun ? { enviados: 0, erros: [] as string[] } : await processarFilaRecuperacao(Math.min(20, MAX_POR_EXECUCAO));
   resultado.recuperacao = recup.enviados;
