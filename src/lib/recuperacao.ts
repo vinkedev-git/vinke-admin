@@ -6,7 +6,7 @@
 //   - fatura:   entra na fila; o cron das 9h cobra uma vez se ainda não foi paga.
 import { adminDb } from "@/lib/firebaseAdmin";
 import { sendResendEmail } from "@/lib/resend";
-import { esc, layout, checkout, diasParaEnem } from "@/lib/emailsGratuito";
+import { esc, layout, checkout, proximaProva } from "@/lib/emailsGratuito";
 
 const CHECKOUT_POR_PRODUTO: Record<string, { nome: string; url: string; preco: string }> = {
   "3123434": { nome: "Passe Reta Final", url: "https://sun.eduzz.com/G96RR56EW1", preco: "R$ 49,90" },
@@ -85,8 +85,10 @@ function linkPagamento(r: Recuperacao) {
 export function montarEmailRecuperacao(r: Recuperacao) {
   const primeiro = (r.nome ?? "").split(" ")[0] || "aluno";
   const { produto, url, novaCobranca } = linkPagamento(r);
-  const dias = diasParaEnem();
-  const prazo = dias > 0 ? `${dias === 1 ? "Falta 1 dia" : `Faltam ${dias} dias`} para o ENEM. ` : "";
+  const prova = proximaProva();
+  const prazo = prova
+    ? `${prova.dias === 1 ? "Falta 1 dia" : `Faltam ${prova.dias} dias`} para ${prova.dia === 1 ? "o ENEM" : "o 2º dia do ENEM"}. `
+    : "";
   if (r.tipo === "carrinho") {
     const corpo = `
       <p>Vi que você começou a garantir o <b>${esc(produto.nome)}</b> e não concluiu. Acontece.</p>

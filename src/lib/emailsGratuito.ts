@@ -20,6 +20,20 @@ export const diasParaEnem = () => {
   const dia = (ms: number) => Math.floor((ms - 3 * 3_600_000) / 86_400_000); // dias de calendário em Brasília
   return dia(ENEM_DIA1.getTime()) - dia(Date.now());
 };
+
+/**
+ * Próximo dia de prova que ainda vale treinar: 1º dia até 7/11, 2º dia
+ * (Matemática e Natureza) de 8 a 14/11, null depois. Mesma regra de
+ * vinke-aluno/src/lib/oferta-client.ts (proximaProva).
+ */
+export function proximaProva(now = new Date()): { dia: 1 | 2; dias: number } | null {
+  const dia = (ms: number) => Math.floor((ms - 3 * 3_600_000) / 86_400_000);
+  const d1 = dia(ENEM_DIA1.getTime()) - dia(now.getTime());
+  if (d1 > 0) return { dia: 1, dias: d1 };
+  const d2 = dia(ENEM_DIA2.getTime()) - dia(now.getTime());
+  if (d2 > 0) return { dia: 2, dias: d2 };
+  return null;
+}
 /**
  * Como se referir ao fim do ENEM 2026 conforme o dia do envio. A abertura sai
  * em rampa por vários dias e o texto não pode dizer "ontem" no terceiro lote.
@@ -113,14 +127,23 @@ export function montarD3(email: string, nome: string | null) {
       html: layout("Comece 2027 descobrindo onde você erra.", corpo, "Fazer um simulado", `${APP}/aluno/simulados/novo?utm_source=email&utm_medium=d3`, "Em fevereiro, quem treinou no período aberto recebe uma condição especial para continuar."),
     };
   }
-  const dias = diasParaEnem();
-  if (dias > 0) {
-    const corpo = `
-      <p>${dias === 1 ? "Falta <b>1 dia</b>" : `Faltam <b>${dias} dias</b>`} para o primeiro dia do ENEM.</p>
-      <p>Quem está no plano grátis treina 10 questões por dia. Até a prova, isso dá ${dias * 10}. O banco tem 2.682.</p>
-      <p>O <b>Passe Reta Final</b> libera tudo até o fim da prova: questões sem limite, simulados no tempo real, plano diário e caderno de erros. <b>R$ 49,90</b>, pagamento único, sem renovação. Garantia de 7 dias.</p>`;
+  const prova = proximaProva();
+  if (prova) {
+    const { dia, dias } = prova;
+    const faltam = dias === 1 ? "Falta <b>1 dia</b>" : `Faltam <b>${dias} dias</b>`;
+    const corpo = dia === 1
+      ? `
+      <p>${faltam} para o primeiro dia do ENEM.</p>
+      <p>Quem está no plano grátis treina 10 questões por dia. Até a prova, isso dá ${dias * 10}. O banco tem mais de 3.100.</p>
+      <p>O <b>Passe Reta Final</b> libera tudo até o fim da prova: questões sem limite, simulados no tempo real, plano diário e caderno de erros. <b>R$ 49,90</b>, pagamento único, sem renovação. Garantia de 7 dias.</p>`
+      : `
+      <p>${faltam} para o segundo dia do ENEM: <b>Matemática e Ciências da Natureza</b>.</p>
+      <p>No plano grátis são 10 questões por dia. Até domingo, isso dá ${dias * 10}, e um simulado de Matemática no tempo da prova tem 45.</p>
+      <p>O <b>Passe Reta Final</b> libera tudo até o fim da prova: questões sem limite, simulados de 45 questões, plano diário e caderno de erros. <b>R$ 49,90</b>, pagamento único, sem renovação. Garantia de 7 dias.</p>`;
     return {
-      subject: `${primeiro}, ${dias} dias: libere o Vinke inteiro até a prova`,
+      subject: dia === 1
+        ? `${primeiro}, ${dias} dias: libere o Vinke inteiro até a prova`
+        : `${primeiro}, ${dias === 1 ? "amanhã" : `${dias} dias`}: Matemática e Natureza sem limite até o 2º dia`,
       html: layout("Reta final é hora de treinar sem freio.", corpo, "Garantir o Passe por R$ 49,90", checkout(CHECKOUT_PASSE, email, nome, "d3"), "O acesso é liberado na hora, no mesmo e-mail desta conta."),
     };
   }
