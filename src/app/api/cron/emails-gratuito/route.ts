@@ -3,7 +3,11 @@
 // quem criou conta no plano gratuito e ainda não comprou.
 //   D+1 (24–48 h após o cadastro): o que fez ontem + 3 questões que errou + Questão do dia.
 //   D+3 (72–96 h): oferta do Passe Reta Final (ou Anual depois do ENEM).
-// Idempotente: marca users/{uid}/meta/emails.{d1SentAt,d3SentAt}. Respeita optOut.
+//   Abertura: disparo único para toda a base gratuita na 1ª semana do Vinke
+//     aberto, em rampa por dia (40 / 120 / resto), dos mais engajados primeiro.
+//   Retorno: quem já treinou e parou há 3+ dias, enquanto o Vinke aberto durar.
+// Idempotente: marca users/{uid}/meta/emails.{d1SentAt,d3SentAt,aberturaSentAt,
+// retornoSentAt}. Respeita optOut.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -11,7 +15,7 @@ export const maxDuration = 60;
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { sendResendEmail } from "@/lib/resend";
-import { montarD1, montarD3, montarRetorno, esc, vinkeAbertoAtivo } from "@/lib/emailsGratuito";
+import { montarD1, montarD3, montarRetorno, montarAbertura, esc, vinkeAbertoAtivo, VINKE_ABERTO_INICIO } from "@/lib/emailsGratuito";
 import { processarFilaRecuperacao } from "@/lib/recuperacao";
 
 function autorizado(req: NextRequest) {
@@ -50,10 +54,13 @@ export async function GET(req: NextRequest) {
 
   // ?preview=d1|d3 devolve o HTML do primeiro candidato, sem enviar nada.
   const preview = req.nextUrl.searchParams.get("preview");
-  if (preview === "d1" || preview === "d3") {
-    const u = (preview === "d1" ? alvoD1 : alvoD3)[0] ?? users[0];
+  if (preview === "d1" || preview === "d3" || preview === "abertura") {
+    const u = (preview === "d1" ? alvoD1 : preview === "d3" ? alvoD3 : users)[0] ?? users[0];
     if (!u) return NextResponse.json({ ok: false, error: "sem usuários" }, { status: 404 });
-    const msg = preview === "d1" ? await montarD1(u.uid, u.email, u.nome) : montarD3(u.email, u.nome);
+    const msg =
+      preview === "d1" ? await montarD1(u.uid, u.email, u.nome)
+      : preview === "d3" ? montarD3(u.email, u.nome)
+      : await montarAbertura(u.uid, u.email, u.nome);
     return new NextResponse(`<!doctype html><title>${msg.subject}</title><p style="font:12px monospace;color:#888">assunto: ${esc(msg.subject)}</p>${msg.html}`, {
       headers: { "content-type": "text/html; charset=utf-8" },
     });
@@ -66,6 +73,7 @@ export async function GET(req: NextRequest) {
     limitePorExecucao?: number;
     adiados?: { d1: number; d3: number };
     recuperacao?: number;
+    abertura?: { diaCampanha: number; teto: number; elegiveis: number; enviados: number; erros: number };
     retorno?: { candidatos: number; enviados: number; erros: number };
   } = { d1: { enviados: 0, pulados: 0, erros: 0 }, d3: { enviados: 0, pulados: 0, erros: 0 }, dryRun };
 
@@ -156,10 +164,72 @@ export async function GET(req: NextRequest) {
   await processar(fila1, "d1");
   await processar(fila3, "d3");
 
+  // ── Abertura do Vinke aberto: um disparo para toda a base gratuita ──────
+  // Em rampa por dias, porque o cron roda uma vez ao dia: 40, depois 120, e aí
+  // o resto. Mandar 400 de uma vez num domínio que vinha de ~200/dia é como se
+  // queima reputação de IP — e a lista inteira passa a cair em spam.
+  const RAMPA_ABERTURA = [40, 120, 400];
+  const DIA_MS = 24 * H;
+  const diaCampanha = Math.floor((now - VINKE_ABERTO_INICIO.getTime()) / DIA_MS);
+  let enviadosAbertura = 0;
+  // Só na primeira semana da campanha: depois disso quem nunca abriu o e-mail
+  // volta a ser assunto do e-mail de retorno, que é recorrente.
+  if (vinkeAbertoAtivo() && diaCampanha >= 0 && diaCampanha <= 6) {
+    const ab = { diaCampanha, teto: 0, elegiveis: 0, enviados: 0, erros: 0 };
+    const sobra = MAX_POR_EXECUCAO - fila1.length - fila3.length - recup.enviados;
+    ab.teto = Math.max(0, Math.min(RAMPA_ABERTURA[Math.min(diaCampanha, RAMPA_ABERTURA.length - 1)], sobra));
+
+    if (ab.teto > 0) {
+      // Só quem já existia quando a campanha começou: quem se cadastra durante
+      // o Vinke aberto nunca viu o limite de 10, e "o limite caiu" não faz
+      // sentido como primeiro e-mail dessa pessoa.
+      const base = users.filter((u) => u.createdMs < VINKE_ABERTO_INICIO.getTime());
+      const cands: { u: (typeof users)[number]; respondidas: number }[] = [];
+      const LOTE = 20;
+      for (let i = 0; i < base.length; i += LOTE) {
+        const parte = base.slice(i, i + LOTE);
+        const infos = await Promise.all(
+          parte.map(async (u) => {
+            const [ent, st, em] = await Promise.all([
+              adminDb.doc(`entitlements/${u.uid}`).get(),
+              adminDb.doc(`users/${u.uid}/meta/stats`).get(),
+              adminDb.doc(`users/${u.uid}/meta/emails`).get(),
+            ]);
+            const plan = String(ent.data()?.plan ?? "");
+            const m = (em.data() ?? {}) as Record<string, unknown>;
+            if (plan !== "gratuito" || m.optOut || m.aberturaSentAt) return null;
+            return { u, respondidas: Number((st.data() ?? {}).totalAnswered ?? 0) };
+          }),
+        );
+        for (const c of infos) if (c) cands.push(c);
+      }
+      // Quem mais respondeu primeiro: é para quem o texto fala (bateu no muro
+      // das 10) e é a parte mais engajada da lista, que é por onde se deve
+      // começar uma rampa — os primeiros lotes é que constroem a reputação.
+      cands.sort((a, b) => b.respondidas - a.respondidas);
+      ab.elegiveis = cands.length;
+      await comRitmo(cands.slice(0, ab.teto), 6, async ({ u }) => {
+        try {
+          const msg = await montarAbertura(u.uid, u.email, u.nome);
+          if (!dryRun) {
+            await sendResendEmail({ to: u.email, subject: msg.subject, html: msg.html });
+            await adminDb.doc(`users/${u.uid}/meta/emails`).set({ aberturaSentAt: new Date(), aberturaSubject: msg.subject }, { merge: true });
+          }
+          ab.enviados++;
+        } catch (e) {
+          ab.erros++;
+          errosDetalhe.push(`abertura ${u.email}: ${(e instanceof Error ? e.message : String(e)).slice(0, 160)}`);
+        }
+      });
+      enviadosAbertura = ab.enviados;
+    }
+    resultado.abertura = ab;
+  }
+
   // ── Vinke aberto: e-mail de retorno para quem parou há 3+ dias ──────────
   // Usa a cota que sobrou do dia. Um por pessoa a cada 7 dias; quem parou há
   // menos tempo vem primeiro (é quem volta mais fácil).
-  const restante = MAX_POR_EXECUCAO - fila1.length - fila3.length - recup.enviados;
+  const restante = MAX_POR_EXECUCAO - fila1.length - fila3.length - recup.enviados - enviadosAbertura;
   if (vinkeAbertoAtivo() && restante > 0 && !dryRun) {
     const D = 24 * H;
     const retorno = { candidatos: 0, enviados: 0, erros: 0 };
@@ -177,10 +247,13 @@ export async function GET(req: NextRequest) {
           ]);
           const plan = String(ent.data()?.plan ?? "");
           const s = (st.data() ?? {}) as { totalAnswered?: unknown; lastAnswerAt?: { toMillis?: () => number } };
-          const m = (em.data() ?? {}) as { optOut?: unknown; retornoSentAt?: { toMillis?: () => number } };
+          const m = (em.data() ?? {}) as { optOut?: unknown; retornoSentAt?: { toMillis?: () => number }; aberturaSentAt?: { toMillis?: () => number } };
           const lastMs = s.lastAnswerAt?.toMillis?.() ?? 0;
           const sentMs = m.retornoSentAt?.toMillis?.() ?? 0;
-          const ok = plan === "gratuito" && !m.optOut && Number(s.totalAnswered ?? 0) > 0 && lastMs > 0 && now - lastMs >= 3 * D && (!sentMs || now - sentMs >= 7 * D);
+          // Quem acabou de receber a abertura não leva o retorno na sequência:
+          // são dois pedidos de volta na mesma semana, e o segundo só irrita.
+          const abMs = m.aberturaSentAt?.toMillis?.() ?? 0;
+          const ok = plan === "gratuito" && !m.optOut && Number(s.totalAnswered ?? 0) > 0 && lastMs > 0 && now - lastMs >= 3 * D && (!sentMs || now - sentMs >= 7 * D) && (!abMs || now - abMs >= 7 * D);
           return ok ? { u, parado: Math.floor((now - lastMs) / D), lastMs } : null;
         }),
       );

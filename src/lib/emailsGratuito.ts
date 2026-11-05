@@ -7,6 +7,7 @@ const APP = "https://aluno.vinke.app.br";
 const CHECKOUT_PASSE = "https://sun.eduzz.com/G96RR56EW1";
 const CHECKOUT_ANUAL = "https://sun.eduzz.com/40QRRBZ19B";
 const ENEM_DIA1 = new Date("2026-11-08T13:30:00-03:00");
+const ENEM_DIA2 = new Date("2026-11-15T13:30:00-03:00");
 
 // Vinke aberto: de 16/11/2026 a 31/01/2027 o plano gratuito tem tudo liberado.
 // Mesma janela de vinke-aluno/src/lib/oferta-client.ts e das firestore.rules.
@@ -19,6 +20,19 @@ export const diasParaEnem = () => {
   const dia = (ms: number) => Math.floor((ms - 3 * 3_600_000) / 86_400_000); // dias de calendário em Brasília
   return dia(ENEM_DIA1.getTime()) - dia(Date.now());
 };
+/**
+ * Como se referir ao fim do ENEM 2026 conforme o dia do envio. A abertura sai
+ * em rampa por vários dias e o texto não pode dizer "ontem" no terceiro lote.
+ */
+export function fimDoEnem(now = new Date()): string {
+  const dia = (ms: number) => Math.floor((ms - 3 * 3_600_000) / 86_400_000);
+  const d = dia(now.getTime()) - dia(ENEM_DIA2.getTime());
+  if (d <= 0) return "O ENEM 2026 terminou.";  // só alcançável via ?preview
+  if (d === 1) return "O ENEM 2026 acabou ontem.";
+  if (d <= 7) return "O ENEM 2026 acabou no domingo.";
+  return "O ENEM 2026 acabou.";
+}
+
 export const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 export function checkout(base: string, email: string, nome: string | null, origem: string) {
@@ -119,6 +133,57 @@ export function montarD3(email: string, nome: string | null) {
   };
 }
 
+
+/**
+ * Abertura do Vinke aberto (16/11). Vai UMA vez para toda a base do plano
+ * gratuito, no dia seguinte ao 2º dia do ENEM 2026.
+ *
+ * O enquadramento é o que importa aqui: a prova ACABOU de terminar. Não dá
+ * para pedir treino para uma prova que já passou — o gancho é o muro que
+ * essas pessoas sentiram (10 questões por dia) somado ao fato de que quem
+ * repete em 2027 começa agora. Marca users/{uid}/meta/emails.aberturaSentAt.
+ */
+export async function montarAbertura(uid: string, email: string, nome: string | null) {
+  const db = adminDb;
+  const [stats, erros] = await Promise.all([
+    db.doc(`users/${uid}/meta/stats`).get(),
+    db.collection(`users/${uid}/errorNotebook`).where("status", "==", "pending").limit(3).get().catch(() => null),
+  ]);
+  const s = (stats.data() ?? {}) as Record<string, unknown>;
+  const respondidas = Number(s.totalAnswered ?? 0);
+  const lista = (erros?.docs ?? []).map((d) => d.data() as Erro).filter((e) => e.enunciadoSnippet);
+  const primeiro = (nome ?? "").split(" ")[0] || "aluno";
+
+  let corpo = `<p>${fimDoEnem()} Se você vai de novo em 2027, o ano começa agora — e o Vinke está <b>aberto até 31 de janeiro</b>.</p>`;
+
+  // O muro é o que essas pessoas lembram do produto: quase todas pararam
+  // exatamente nas 10 do primeiro dia.
+  corpo += respondidas > 0
+    ? `<p>Você respondeu <b>${respondidas}</b> ${respondidas === 1 ? "questão" : "questões"} e esbarrou no limite de dez por dia. <b>Esse limite caiu.</b> Questões sem limite, simulados completos no tempo da prova, plano diário e caderno de erros. Sem cartão, sem pegadinha.</p>`
+    : `<p>Sua conta está parada desde o cadastro. <b>O limite de dez questões por dia caiu</b>: até 31 de janeiro é tudo liberado, sem cartão.</p>`;
+
+  if (lista.length) {
+    corpo += `<p style="margin-top:16px"><b>Seu caderno de erros guardou estas:</b></p><ol style="padding-left:18px;margin:6px 0 0">`;
+    for (const e of lista) {
+      const tema = e.temas?.[0] ? ` <span style="color:#66627F">(${esc(e.temas[0])})</span>` : "";
+      corpo += `<li style="margin:6px 0">${esc(String(e.enunciadoSnippet).slice(0, 140))}…${tema}</li>`;
+    }
+    corpo += `</ol><p style="margin-top:10px">Elas continuam lá, esperando você refazer.</p>`;
+  }
+
+  corpo += `<p style="margin-top:16px">Se for começar por algo, comece por um <b>simulado de 45 questões</b> de uma área. Leva 1h30, mostra onde você erra de verdade, e o caderno de erros se monta sozinho a partir daí.</p>`;
+
+  return {
+    subject: `${primeiro}, acabou o limite de 10 questões por dia`,
+    html: layout(
+      "O ENEM 2026 acabou. O de 2027 começa hoje.",
+      corpo,
+      "Treinar sem limite",
+      `${APP}/aluno?utm_source=email&utm_medium=abertura`,
+      "Vinke aberto: tudo liberado até 31 de janeiro de 2027, sem cartão.",
+    ),
+  };
+}
 
 /**
  * E-mail de retorno do Vinke aberto: quem já treinou mas parou há 3+ dias.
