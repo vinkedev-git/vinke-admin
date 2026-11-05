@@ -752,6 +752,14 @@ export async function POST(req: NextRequest) {
       const u = await adminAuth.getUserByEmail(email);
       uid = u.uid;
     } catch {
+      // Cancelamento/expiração de quem não tem conta: não há o que desativar.
+      if (action === "deactivate") {
+        await db.collection("eduzz_events").doc(envelopeId).set(
+          { processed: false, reason: "deactivate_user_not_found", email },
+          { merge: true }
+        );
+        return NextResponse.json({ ok: true, processed: false, reason: "deactivate_user_not_found" }, { status: 200 });
+      }
       const created = await adminAuth.createUser({
         email,
         emailVerified: true,
@@ -761,6 +769,19 @@ export async function POST(req: NextRequest) {
 
     const entRef = db.collection("entitlements").doc(uid);
     const now = new Date();
+
+    // Aluno do plano gratuito que gerou Pix/boleto e não pagou: a fatura
+    // cancelada/expirada NÃO pode desativar a conta gratuita dele.
+    if (action === "deactivate") {
+      const atual = (await entRef.get()).data() ?? {};
+      if (String(atual.plan ?? "") === "gratuito") {
+        await db.collection("eduzz_events").doc(envelopeId).set(
+          { processed: false, reason: "deactivate_ignorado_conta_gratuita", uid, email },
+          { merge: true }
+        );
+        return NextResponse.json({ ok: true, processed: false, reason: "deactivate_ignorado_conta_gratuita", uid }, { status: 200 });
+      }
+    }
 
     if (action === "activate") {
       // ✅ ENTITLEMENT com vencimento + plano/valor
