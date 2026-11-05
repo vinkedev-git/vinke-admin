@@ -72,11 +72,24 @@ export async function GET(req: NextRequest) {
   const errosDetalhe: string[] = [];
   // Envia em lotes de 6 em paralelo: 148 e-mails sequenciais levaram 59,7 s,
   // no limite de 60 s do plano Hobby.
-  async function processar(lista: typeof users, tipo: "d1" | "d3") {
-    const LOTE = 6;
-    for (let i = 0; i < lista.length; i += LOTE) {
-      await Promise.all(lista.slice(i, i + LOTE).map((u) => processarUm(u, tipo)));
+  // A Resend aceita 10 req/s. Lotes de 6 disparados em sequência, sem pausa,
+  // estouravam o limite (52 envios perderam-se num 429 em 04/11/2026). O
+  // sendResendEmail já reenvia, mas é melhor não provocar: cada lote ocupa no
+  // mínimo uma janela, o que deixa o ritmo em ~6 req/s.
+  const JANELA_LOTE_MS = 1000;
+  async function comRitmo<T>(itens: T[], tamanho: number, fn: (x: T) => Promise<unknown>) {
+    for (let i = 0; i < itens.length; i += tamanho) {
+      const t0 = Date.now();
+      await Promise.all(itens.slice(i, i + tamanho).map(fn));
+      const resta = JANELA_LOTE_MS - (Date.now() - t0);
+      if (resta > 0 && i + tamanho < itens.length) {
+        await new Promise((r) => setTimeout(r, resta));
+      }
     }
+  }
+
+  async function processar(lista: typeof users, tipo: "d1" | "d3") {
+    await comRitmo(lista, 6, (u) => processarUm(u, tipo));
   }
 
   // Quem ainda não recebeu este e-mail (plano gratuito, sem opt-out, sem marca
@@ -176,21 +189,17 @@ export async function GET(req: NextRequest) {
     cands.sort((a, b) => b.lastMs - a.lastMs);
     retorno.candidatos = cands.length;
     const fila = cands.slice(0, restante);
-    for (let i = 0; i < fila.length; i += 6) {
-      await Promise.all(
-        fila.slice(i, i + 6).map(async ({ u, parado }) => {
-          try {
-            const msg = await montarRetorno(u.uid, u.email, u.nome, parado);
-            await sendResendEmail({ to: u.email, subject: msg.subject, html: msg.html });
-            await adminDb.doc(`users/${u.uid}/meta/emails`).set({ retornoSentAt: new Date(), retornoSubject: msg.subject }, { merge: true });
-            retorno.enviados++;
-          } catch (e) {
-            retorno.erros++;
-            errosDetalhe.push(`retorno ${u.email}: ${(e instanceof Error ? e.message : String(e)).slice(0, 160)}`);
-          }
-        }),
-      );
-    }
+    await comRitmo(fila, 6, async ({ u, parado }) => {
+      try {
+        const msg = await montarRetorno(u.uid, u.email, u.nome, parado);
+        await sendResendEmail({ to: u.email, subject: msg.subject, html: msg.html });
+        await adminDb.doc(`users/${u.uid}/meta/emails`).set({ retornoSentAt: new Date(), retornoSubject: msg.subject }, { merge: true });
+        retorno.enviados++;
+      } catch (e) {
+        retorno.erros++;
+        errosDetalhe.push(`retorno ${u.email}: ${(e instanceof Error ? e.message : String(e)).slice(0, 160)}`);
+      }
+    });
     resultado.retorno = retorno;
   }
 
