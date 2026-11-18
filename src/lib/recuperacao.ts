@@ -12,6 +12,7 @@ const CHECKOUT_POR_PRODUTO: Record<string, { nome: string; url: string; preco: s
   "3123434": { nome: "Passe Reta Final", url: "https://sun.eduzz.com/G96RR56EW1", preco: "R$ 49,90" },
   "3123438": { nome: "Plano Mensal", url: "https://sun.eduzz.com/1W322JN592", preco: "R$ 34,90/mês" },
   "3123436": { nome: "Plano Anual", url: "https://sun.eduzz.com/40QRRBZ19B", preco: "12x R$ 19,90" },
+  "3154550": { nome: "Anual Fundador", url: "https://chk.eduzz.com/8017XZ2N07", preco: "12x R$ 14,90" },
 };
 const PRODUTO_PADRAO = CHECKOUT_POR_PRODUTO["3123434"];
 

@@ -245,7 +245,7 @@ export function montarProva2026(email: string, nome: string | null) {
  * Mesmo produto/preço/datas de vinke-aluno/src/lib/oferta-client.ts e da LP.
  * CHECKOUT_FUNDADOR vazio = oferta desligada (nada é enviado).
  */
-export const CHECKOUT_FUNDADOR = "";
+export const CHECKOUT_FUNDADOR = "https://chk.eduzz.com/8017XZ2N07";
 export const PRECO_FUNDADOR = "12x R$ 14,90";
 export const FUNDADOR_EMAIL_INICIO = new Date("2027-01-05T00:00:00-03:00");
 export const FUNDADOR_FIM = new Date("2027-02-01T00:00:00-03:00");
