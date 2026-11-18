@@ -6,6 +6,7 @@
 //   node scripts/classify-questions.mjs --limit=24        # só um lote de teste
 //   node scripts/classify-questions.mjs --dry-run         # não grava nada
 //   node scripts/classify-questions.mjs --model=claude-haiku-4-5  # modelo mais barato
+//   node scripts/classify-questions.mjs --ano=2026        # só a prova do ano, mesmo inativa
 //
 // Requer ANTHROPIC_API_KEY no .env.local (console.anthropic.com → API Keys).
 
@@ -165,7 +166,8 @@ async function main() {
 
   const pending = pendingSnap.docs
     .map((d) => ({ id: d.id, ...d.data() }))
-    .filter((q) => q.isActive !== false)
+    // --ano=AAAA: inclui as inativas daquele ano (prova importada em revisão)
+    .filter((q) => (args.ano ? Number(q.examYear) === Number(args.ano) : q.isActive !== false))
     .slice(0, LIMIT);
 
   console.log(`Taxonomia: ${disciplinas.length} disciplinas. Pendentes: ${pending.length} questões.`);

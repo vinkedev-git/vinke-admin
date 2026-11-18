@@ -9,6 +9,13 @@ Uso: python render_alts.py <prova.pdf> <questoes.json> <dir_imgs> 150,155,...
 """
 import fitz, json, re, sys, os
 
+
+# 2026: o PDF afasta as letras em parte das páginas e o PyMuPDF insere espaços
+# sintéticos ("Q U ES T Ã O", "pov os"). Com INEP_SEM_ESPACO_SINTETICO=1 a
+# extração usa só os espaços que existem no PDF. Desligado por padrão para
+# não mudar a leitura dos cadernos antigos (2023–2025).
+FLAGS_DICT = fitz.TEXTFLAGS_DICT | (fitz.TEXT_INHIBIT_SPACES if os.environ.get("INEP_SEM_ESPACO_SINTETICO") else 0)
+
 RODAPE = 730.0
 SUSPEITAS = []
 
@@ -20,7 +27,7 @@ def fundo_do_conteudo(pag, topo, limite):
     alternativa realmente termina, o recorte fica justo nos dois casos.
     """
     fundos = []
-    for bl in pag.get_text("dict")["blocks"]:
+    for bl in pag.get_text("dict", flags=FLAGS_DICT)["blocks"]:
         if bl["type"] == 1:
             continue
         for ln in bl.get("lines", []):
@@ -46,7 +53,7 @@ def faixa_coluna(pag, x0, topo=None, base=None):
     if topo is None or base is None:
         return (meio - 6) if x0 < meio else limite
     caixas = []
-    for bl in pag.get_text("dict")["blocks"]:
+    for bl in pag.get_text("dict", flags=FLAGS_DICT)["blocks"]:
         if bl["type"] == 1:
             continue
         for ln in bl.get("lines", []):
@@ -81,7 +88,7 @@ def topo_visual(pag, y_letra, piso, x_ini, x_fim):
     "L" solto, que é o numerador da seguinte).
     """
     topo = y_letra
-    for bl in pag.get_text("dict")["blocks"]:
+    for bl in pag.get_text("dict", flags=FLAGS_DICT)["blocks"]:
         if bl["type"] == 1:
             continue
         for ln in bl.get("lines", []):
@@ -110,7 +117,7 @@ def teto_proxima_questao(pag, y_apos, x_ini, x_fim):
     saía com o cabeçalho da questão seguinte e a marca d'água dentro.
     """
     melhor = None
-    for bl in pag.get_text("dict")["blocks"]:
+    for bl in pag.get_text("dict", flags=FLAGS_DICT)["blocks"]:
         if bl["type"] == 1:
             continue
         for ln in bl.get("lines", []):
@@ -135,7 +142,7 @@ def blocos_de_tinta(pag, x_ini, x_fim, y_ini, y_fim, folga=5.0):
     serve igual para fração de duas linhas e para diagrama alto.
     """
     caixas = []
-    for bl in pag.get_text("dict")["blocks"]:
+    for bl in pag.get_text("dict", flags=FLAGS_DICT)["blocks"]:
         if bl["type"] == 1:
             r = bl["bbox"]
             caixas.append((r[1], r[3], r[0], r[2]))

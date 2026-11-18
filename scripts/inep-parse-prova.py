@@ -9,6 +9,48 @@ Uso: python parse_prova.py <prova.pdf> <saida.json>
 """
 import fitz, re, json, sys, hashlib, os
 
+# 2026: o PDF afasta as letras em parte das páginas e o PyMuPDF insere espaços
+# sintéticos ("Q U ES T Ã O", "pov os"). Com INEP_SEM_ESPACO_SINTETICO=1 a
+# extração usa só os espaços que existem no PDF. Desligado por padrão para
+# não mudar a leitura dos cadernos antigos (2023–2025).
+FLAGS_DICT = fitz.TEXTFLAGS_DICT | (fitz.TEXT_INHIBIT_SPACES if os.environ.get("INEP_SEM_ESPACO_SINTETICO") else 0)
+
+# Fonte Symbol guarda letras gregas em código latino (a=α, b=β, m=μ...): sem
+# converter, "partícula α" vira "partícula a". Tabela do encoding Symbol.
+_SYMBOL = dict(zip("abgdezhqiklmnxoprstufcywjvJGDQLXPSUFYW",
+                   "αβγδεζηθικλμνξοπρστυφχψωϕϖϑΓΔΘΛΞΠΣΥΦΨΩ"))
+# Índices: o PDF escreve H₂O e 10⁻⁴ com um trecho menor (6,5 pt contra 10 pt)
+# e a linha de base deslocada. Sem tratar, viravam "H2O" e "10-4". Convertemos
+# para os caracteres Unicode de sobrescrito/subscrito (sem depender de HTML).
+_SUP = dict(zip("0123456789+-−=()nitxabcdekmpr", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁻⁼⁽⁾ⁿⁱᵗˣᵃᵇᶜᵈᵉᵏᵐᵖʳ"))
+_SUB = dict(zip("0123456789+-−=()aeoxhklmnpst", "₀₁₂₃₄₅₆₇₈₉₊₋₋₌₍₎ₐₑₒₓₕₖₗₘₙₚₛₜ"))
+def texto_linha(spans):
+    """Junta os trechos da linha convertendo índices (sobrescrito/subscrito)."""
+    if not spans:
+        return ""
+    # referência = trecho com mais texto (o corpo), nunca o maior: uma capitular
+    # grande transformaria as palavras curtas da linha em "sobrescrito"
+    principal = max(spans, key=lambda sp: len(sp["text"].strip()))
+    base, tam = principal["origin"][1], principal["size"]
+    partes = []
+    for sp in spans:
+        t = texto_span(sp)
+        menor = sp["size"] < tam * 0.8 and t.strip()
+        dy = sp["origin"][1] - base
+        if menor and abs(dy) >= 0.8:
+            tabela = _SUB if dy > 0 else _SUP
+            nucleo = t.strip()
+            if all(c in tabela for c in nucleo):
+                t = t.replace(nucleo, "".join(tabela[c] for c in nucleo))
+        partes.append(t)
+    return "".join(partes)
+
+
+def texto_span(sp):
+    if sp.get("font", "").startswith("Symbol"):
+        return "".join(_SYMBOL.get(c, c) for c in sp["text"])
+    return sp["text"]
+
 # Fronteira entre as colunas: o meio da página. A coluna esquerda começa em
 # x≈23 e a direita em x≈286, numa página de 567pt — 283 separa com folga.
 # (Valor fixo de 291 jogava o topo da coluna direita para a esquerda e
@@ -22,7 +64,9 @@ TOPO = 45.0           # acima disso é cabeçalho. 60 cortava o marcador das
 # O caderno de 2025 escreve "Questão 04" em Calibri-Bold 11; o de 2024 usa
 # "QUESTÃO 04" em Arial-BoldMT 10,8. Daí o regex ser insensível a caixa e o
 # teste de fonte olhar só "negrito em corpo ~11".
-MARCADOR = re.compile(r'^\s*QUEST[ÃA]O\s*(\d{1,3})\s*$', re.I)
+# 2026: parte das páginas sai com espaço entre as letras ("Q U ES T Ã O  101"),
+# por isso o regex tolera espaço entre cada letra.
+MARCADOR = re.compile(r'^\s*Q\s*U\s*E\s*S\s*T\s*[ÃA]\s*O\s*(\d{1,3})\s*$', re.I)
 # "Texto para as Questões de 06 a 10." — um texto único que serve a várias
 # questões; aparece UMA vez no caderno e as questões seguintes só trazem o
 # comando. Sem isto, essas questões ficam sem enunciado.
@@ -98,7 +142,7 @@ def itens_da_pagina(doc, pno, dir_img):
     meio = pag.rect.width / 2
 
     linhas, imagens = [], []
-    for ibl, bl in enumerate(pag.get_text("dict")["blocks"]):
+    for ibl, bl in enumerate(pag.get_text("dict", flags=FLAGS_DICT)["blocks"]):
         bx0, by0, bx1, by1 = bl["bbox"]
         if by0 > RODAPE or by1 < TOPO:
             continue
@@ -109,7 +153,17 @@ def itens_da_pagina(doc, pno, dir_img):
             lx0, ly0, lx1 = ln["bbox"][0], ln["bbox"][1], ln["bbox"][2]
             if ly0 > RODAPE or ly0 < TOPO:
                 continue
-            bruto = "".join(sp["text"] for sp in ln["spans"])
+            bruto = texto_linha(ln["spans"])
+            # 2026: a letra da alternativa vem na fonte do círculo (BundesbahnPi)
+            # seguida de UM espaço ("A discutir…"). O regex principal exige tab
+            # ou 2 espaços (para não confundir com o artigo "A"), então essas
+            # linhas caíam no plano B, que só lê a 1ª linha e cortava toda
+            # alternativa de duas linhas. A fonte é o sinal confiável: normaliza
+            # para "A\ttexto".
+            sp0 = ln["spans"][0] if ln["spans"] else None
+            if sp0 and "BundesbahnPi" in sp0.get("font", "") and sp0["text"].strip() in ("A", "B", "C", "D", "E"):
+                resto = texto_linha(ln["spans"][1:]).strip()
+                bruto = sp0["text"].strip() + ("\t" + resto if resto else "")
             texto = CARIMBO.sub("", bruto).strip()
             if not texto or LIXO.match(texto) or SO_CARIMBO.match(texto) \
                or SO_GLIFO.match(texto):
