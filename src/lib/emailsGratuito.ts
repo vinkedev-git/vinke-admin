@@ -209,6 +209,36 @@ export async function montarAbertura(uid: string, email: string, nome: string | 
 }
 
 /**
+ * ENEM 2026 resolvido: disparo único para a base gratuita depois do gabarito
+ * oficial (18/11/2026). Marca users/{uid}/meta/emails.prova2026SentAt.
+ * Fala com os dois públicos: quem fez a prova (conferir o que errou) e quem
+ * vai fazer em 2027 (a prova mais recente é o melhor ponto de partida).
+ */
+export const PROVA2026_INICIO = new Date("2026-11-19T00:00:00-03:00");
+export const PROVA2026_FIM = new Date("2026-12-21T00:00:00-03:00");
+
+export function montarProva2026(email: string, nome: string | null) {
+  const primeiro = (nome ?? "").split(" ")[0] || "aluno";
+  const utm = "utm_source=email&utm_medium=prova2026&utm_campaign=enem2026";
+  const corpo = `
+    <p>O INEP divulgou o gabarito oficial, e a <b>prova do ENEM 2026 já está no Vinke</b>: as 184 questões dos dois dias, cada uma com resolução comentada. (A questão 153, do campeonato de futebol, foi anulada pelo INEP.)</p>
+    <p><b>Se você fez a prova</b>, refaça no Vinke e veja, questão por questão, onde errou e por quê. É a correção que o gabarito sozinho não dá.</p>
+    <p><b>Se você vai fazer em 2027</b>, essa é a prova mais recente, o retrato mais fiel do que vem por aí. Comece por uma área inteira, no tempo da prova.</p>
+    <p>E até 31 de janeiro o Vinke está aberto: sem limite de questões, sem cartão.</p>
+    <p style="margin-top:14px;font-size:14px">Prefere só ler as resoluções? Estão todas em <a href="https://vinke.app.br/questoes/prova/2026?${utm}" style="color:#6236F0">vinke.app.br/questoes/prova/2026</a>.</p>`;
+  return {
+    subject: `${primeiro}, a prova do ENEM 2026 já está resolvida no Vinke`,
+    html: layout(
+      "ENEM 2026 resolvido e comentado.",
+      corpo,
+      "Fazer a prova de 2026",
+      `${APP}/aluno/provas?${utm}`,
+      "Vinke aberto: tudo liberado até 31 de janeiro de 2027, sem cartão.",
+    ),
+  };
+}
+
+/**
  * E-mail de retorno do Vinke aberto: quem já treinou mas parou há 3+ dias.
  * Um por pessoa a cada 7 dias (marca users/{uid}/meta/emails.retornoSentAt).
  */
