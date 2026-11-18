@@ -239,6 +239,40 @@ export function montarProva2026(email: string, nome: string | null) {
 }
 
 /**
+ * Anual Fundador: 12x R$ 14,90 (R$ 178,80) até 31/01/2027, e os 12 meses só
+ * começam a contar em 1º/02/2027. O e-mail sai uma vez, em janeiro (5 a 31),
+ * quando a turma 2027 volta a pensar em estudo. Marca emails.fundadorSentAt.
+ * Mesmo produto/preço/datas de vinke-aluno/src/lib/oferta-client.ts e da LP.
+ * CHECKOUT_FUNDADOR vazio = oferta desligada (nada é enviado).
+ */
+export const CHECKOUT_FUNDADOR = "";
+export const PRECO_FUNDADOR = "12x R$ 14,90";
+export const FUNDADOR_EMAIL_INICIO = new Date("2027-01-05T00:00:00-03:00");
+export const FUNDADOR_FIM = new Date("2027-02-01T00:00:00-03:00");
+
+export function montarFundador(email: string, nome: string | null) {
+  const primeiro = (nome ?? "").split(" ")[0] || "aluno";
+  const dia = (ms: number) => Math.floor((ms - 3 * 3_600_000) / 86_400_000);
+  const faltam = dia(FUNDADOR_FIM.getTime()) - dia(Date.now());
+  const prazo = faltam <= 1 ? "Termina hoje" : `Faltam ${faltam} dias`;
+  const corpo = `
+    <p>Até 31 de janeiro o Vinke está aberto para você, de graça. Em fevereiro o plano grátis volta a ter 10 questões por dia.</p>
+    <p>Para quem quer seguir sem limite até o ENEM 2027, existe uma condição só até o fim do período aberto: o <b>Anual Fundador por 12x R$ 14,90</b> (R$ 178,80). Em fevereiro o Anual volta para 12x R$ 19,90.</p>
+    <p>E você não perde nada assinando agora: <b>os 12 meses só começam a contar em 1º de fevereiro</b>. Até lá continua tudo liberado, e o acesso vai até 31 de janeiro de 2028, cobrindo o ENEM 2027 inteiro.</p>
+    <p>Questões sem limite, simulados completos, plano diário e caderno de erros. Garantia de 7 dias.</p>`;
+  return {
+    subject: `${primeiro}, o Anual por 12x R$ 14,90 vai até 31 de janeiro`,
+    html: layout(
+      `${prazo} para a condição de fundador.`,
+      corpo,
+      "Garantir o Anual Fundador",
+      checkout(CHECKOUT_FUNDADOR || "https://vinke.app.br/#planos", email, nome, "fundador"),
+      "Depois de 31/1 o Anual volta a 12x R$ 19,90.",
+    ),
+  };
+}
+
+/**
  * E-mail de retorno do Vinke aberto: quem já treinou mas parou há 3+ dias.
  * Um por pessoa a cada 7 dias (marca users/{uid}/meta/emails.retornoSentAt).
  */

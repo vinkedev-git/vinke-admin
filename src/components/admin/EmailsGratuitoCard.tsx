@@ -41,7 +41,7 @@ export default function EmailsGratuitoCard() {
     void load();
   }, []);
 
-  const teste = async (tipo: "d1" | "d3" | "prova2026") => {
+  const teste = async (tipo: "d1" | "d3" | "prova2026" | "fundador") => {
     setBusy(tipo);
     setMsg(null);
     try {
@@ -74,6 +74,9 @@ export default function EmailsGratuitoCard() {
         </Button>
         <Button onClick={() => void teste("prova2026")} disabled={busy !== null}>
           {busy === "prova2026" ? "Enviando…" : "Enviar ENEM 2026 para mim"}
+        </Button>
+        <Button onClick={() => void teste("fundador")} disabled={busy !== null}>
+          {busy === "fundador" ? "Enviando…" : "Enviar Fundador para mim"}
         </Button>
         <Button onClick={() => void load()} disabled={busy !== null}>
           Atualizar

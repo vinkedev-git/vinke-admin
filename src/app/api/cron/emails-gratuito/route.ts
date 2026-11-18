@@ -15,7 +15,7 @@ export const maxDuration = 60;
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { sendResendEmail } from "@/lib/resend";
-import { montarD1, montarD3, montarRetorno, montarAbertura, montarProva2026, PROVA2026_INICIO, PROVA2026_FIM, esc, vinkeAbertoAtivo, VINKE_ABERTO_INICIO } from "@/lib/emailsGratuito";
+import { montarD1, montarD3, montarRetorno, montarAbertura, montarProva2026, PROVA2026_INICIO, PROVA2026_FIM, montarFundador, CHECKOUT_FUNDADOR, FUNDADOR_EMAIL_INICIO, FUNDADOR_FIM, esc, vinkeAbertoAtivo, VINKE_ABERTO_INICIO } from "@/lib/emailsGratuito";
 import { processarFilaRecuperacao } from "@/lib/recuperacao";
 
 function autorizado(req: NextRequest) {
@@ -54,6 +54,14 @@ export async function GET(req: NextRequest) {
 
   // ?preview=d1|d3 devolve o HTML do primeiro candidato, sem enviar nada.
   const preview = req.nextUrl.searchParams.get("preview");
+  if (preview === "fundador") {
+    const u = users[0];
+    if (!u) return NextResponse.json({ ok: false, error: "sem usuários" }, { status: 404 });
+    const msg = montarFundador(u.email, u.nome);
+    return new NextResponse(`<!doctype html><title>${msg.subject}</title><p style="font:12px monospace;color:#888">assunto: ${esc(msg.subject)}</p>${msg.html}`, {
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
+  }
   if (preview === "prova2026") {
     const u = users[0];
     if (!u) return NextResponse.json({ ok: false, error: "sem usuários" }, { status: 404 });
@@ -84,6 +92,7 @@ export async function GET(req: NextRequest) {
     abertura?: { diaCampanha: number; teto: number; elegiveis: number; enviados: number; erros: number };
     retorno?: { candidatos: number; enviados: number; erros: number };
     prova2026?: { elegiveis: number; teto: number; enviados: number; erros: number };
+    fundador?: { elegiveis: number; teto: number; enviados: number; erros: number };
   } = { d1: { enviados: 0, pulados: 0, erros: 0 }, d3: { enviados: 0, pulados: 0, erros: 0 }, dryRun };
 
   const errosDetalhe: string[] = [];
@@ -285,10 +294,59 @@ export async function GET(req: NextRequest) {
     resultado.prova2026 = pv;
   }
 
+  // ── Anual Fundador: um e-mail em janeiro (5 a 31/1), só com checkout ────
+  // configurado. Mais engajados primeiro; pula quem recebeu e-mail em 20 h.
+  let enviadosFundador = 0;
+  if (CHECKOUT_FUNDADOR && now >= FUNDADOR_EMAIL_INICIO.getTime() && now < FUNDADOR_FIM.getTime()) {
+    const fd = { elegiveis: 0, teto: 0, enviados: 0, erros: 0 };
+    fd.teto = Math.max(0, MAX_POR_EXECUCAO - fila1.length - fila3.length - recup.enviados - enviadosAbertura - enviadosProva);
+    if (fd.teto > 0) {
+      const ms = (v: unknown) => (v as { toMillis?: () => number } | undefined)?.toMillis?.() ?? 0;
+      const cands: { u: (typeof users)[number]; respondidas: number }[] = [];
+      const LOTE = 20;
+      for (let i = 0; i < users.length; i += LOTE) {
+        const parte = users.slice(i, i + LOTE);
+        const infos = await Promise.all(
+          parte.map(async (u) => {
+            const [ent, st, em] = await Promise.all([
+              adminDb.doc(`entitlements/${u.uid}`).get(),
+              adminDb.doc(`users/${u.uid}/meta/stats`).get(),
+              adminDb.doc(`users/${u.uid}/meta/emails`).get(),
+            ]);
+            const plan = String(ent.data()?.plan ?? "");
+            const m = (em.data() ?? {}) as Record<string, unknown>;
+            if (plan !== "gratuito" || m.optOut || m.fundadorSentAt) return null;
+            const ultimo = Math.max(ms(m.aberturaSentAt), ms(m.retornoSentAt), ms(m.d1SentAt), ms(m.d3SentAt), ms(m.prova2026SentAt));
+            if (ultimo && now - ultimo < 20 * H) return null;
+            return { u, respondidas: Number((st.data() ?? {}).totalAnswered ?? 0) };
+          }),
+        );
+        for (const c of infos) if (c) cands.push(c);
+      }
+      cands.sort((a, b) => b.respondidas - a.respondidas);
+      fd.elegiveis = cands.length;
+      await comRitmo(cands.slice(0, fd.teto), 6, async ({ u }) => {
+        try {
+          const msg = montarFundador(u.email, u.nome);
+          if (!dryRun) {
+            await sendResendEmail({ to: u.email, subject: msg.subject, html: msg.html });
+            await adminDb.doc(`users/${u.uid}/meta/emails`).set({ fundadorSentAt: new Date(), fundadorSubject: msg.subject }, { merge: true });
+          }
+          fd.enviados++;
+        } catch (e) {
+          fd.erros++;
+          errosDetalhe.push(`fundador ${u.email}: ${(e instanceof Error ? e.message : String(e)).slice(0, 160)}`);
+        }
+      });
+      enviadosFundador = fd.enviados;
+    }
+    resultado.fundador = fd;
+  }
+
   // ── Vinke aberto: e-mail de retorno para quem parou há 3+ dias ──────────
   // Usa a cota que sobrou do dia. Um por pessoa a cada 7 dias; quem parou há
   // menos tempo vem primeiro (é quem volta mais fácil).
-  const restante = MAX_POR_EXECUCAO - fila1.length - fila3.length - recup.enviados - enviadosAbertura - enviadosProva;
+  const restante = MAX_POR_EXECUCAO - fila1.length - fila3.length - recup.enviados - enviadosAbertura - enviadosProva - enviadosFundador;
   if (vinkeAbertoAtivo() && restante > 0 && !dryRun) {
     const D = 24 * H;
     const retorno = { candidatos: 0, enviados: 0, erros: 0 };

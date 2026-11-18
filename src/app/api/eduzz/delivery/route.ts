@@ -395,6 +395,16 @@ function computeValidUntil(planCode: string | null, base: Date): Date {
   if (code === "reta-final-2026") {
     return new Date("2026-12-01T02:59:59.000Z");
   }
+  // Anual Fundador (vendido no Vinke aberto, até 31/01/2027): os 12 meses só
+  // começam a contar em 1º/02/2027 — quem assina antes não perde o período
+  // grátis. Vai até 31/01/2028 23:59 (Brasília). Compra posterior conta da data.
+  if (code === "anual-fundador") {
+    const inicio = new Date("2027-02-01T00:00:00-03:00");
+    const de = base.getTime() > inicio.getTime() ? base : inicio;
+    const fim = addMonths(de, 12);
+    fim.setDate(fim.getDate() - 1);
+    return fimDoDiaBRT(fim);
+  }
   return fimDoDiaBRT(addMonths(base, 12));
 }
 

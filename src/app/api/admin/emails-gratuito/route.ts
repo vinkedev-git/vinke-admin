@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/adminRoute";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { sendResendEmail } from "@/lib/resend";
-import { montarD1, montarD3, montarProva2026 } from "@/lib/emailsGratuito";
+import { montarD1, montarD3, montarProva2026, montarFundador } from "@/lib/emailsGratuito";
 
 export async function GET(req: NextRequest) {
   const check = await requireAdmin(req);
@@ -33,13 +33,14 @@ export async function POST(req: NextRequest) {
   const check = await requireAdmin(req);
   if ("error" in check) return check.error;
   const body = (await req.json().catch(() => ({}))) as { tipo?: string };
-  const tipo = body.tipo === "d3" ? "d3" : body.tipo === "prova2026" ? "prova2026" : "d1";
+  const tipo = body.tipo === "d3" ? "d3" : body.tipo === "prova2026" ? "prova2026" : body.tipo === "fundador" ? "fundador" : "d1";
   const user = await adminAuth.getUser(check.adminUid);
   if (!user.email) return NextResponse.json({ ok: false, error: "Admin sem e-mail" }, { status: 400 });
   try {
     const msg =
       tipo === "d1" ? await montarD1(user.uid, user.email, user.displayName ?? null)
       : tipo === "prova2026" ? montarProva2026(user.email, user.displayName ?? null)
+      : tipo === "fundador" ? montarFundador(user.email, user.displayName ?? null)
       : montarD3(user.email, user.displayName ?? null);
     await sendResendEmail({ to: user.email, subject: `[teste] ${msg.subject}`, html: msg.html });
     return NextResponse.json({ ok: true, enviadoPara: user.email, assunto: msg.subject });
