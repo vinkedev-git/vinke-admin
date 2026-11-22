@@ -14,7 +14,10 @@ const CHECKOUT_POR_PRODUTO: Record<string, { nome: string; url: string; preco: s
   "3123436": { nome: "Plano Anual", url: "https://sun.eduzz.com/40QRRBZ19B", preco: "12x R$ 19,90" },
   "3154550": { nome: "Anual Fundador", url: "https://chk.eduzz.com/8017XZ2N07", preco: "12x R$ 14,90" },
 };
-const PRODUTO_PADRAO = CHECKOUT_POR_PRODUTO["3123434"];
+// Produto não identificado: oferece a oferta vigente (Fundador até 31/01/2027,
+// depois o Anual). O Passe Reta Final acabou com a prova de 2026.
+const FIM_FUNDADOR = Date.parse("2027-02-01T03:00:00Z"); // 01/02/2027 00:00 BRT
+const produtoPadrao = () => CHECKOUT_POR_PRODUTO[Date.now() < FIM_FUNDADOR ? "3154550" : "3123436"];
 
 type Src = Record<string, any>;
 const str = (...v: unknown[]) => {
@@ -77,7 +80,7 @@ export function extrairRecuperacao(tipo: "carrinho" | "fatura", evento: string, 
 }
 
 function linkPagamento(r: Recuperacao) {
-  const produto = (r.productId && CHECKOUT_POR_PRODUTO[r.productId]) || PRODUTO_PADRAO;
+  const produto = (r.productId && CHECKOUT_POR_PRODUTO[r.productId]) || produtoPadrao();
   // Fatura aberta: prefere o link da própria cobrança (Pix/boleto já emitidos).
   if (r.tipo === "fatura" && r.urlPagamento) return { produto, url: r.urlPagamento, novaCobranca: false };
   return { produto, url: checkout(produto.url, r.email, r.nome, `recuperacao-${r.tipo}`), novaCobranca: true };
