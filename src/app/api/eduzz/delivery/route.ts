@@ -791,6 +791,17 @@ export async function POST(req: NextRequest) {
         );
         return NextResponse.json({ ok: true, processed: false, reason: "deactivate_ignorado_conta_gratuita", uid }, { status: 200 });
       }
+      // Só a fatura que GEROU o acesso atual pode tirá-lo (reembolso,
+      // chargeback ou cancelamento dela). Um Pix de outro plano gerado e não
+      // pago derrubava o acesso pago do assinante.
+      const faturaAtual = String(atual.invoiceId ?? "").trim();
+      if (!faturaAtual || !invoiceId || faturaAtual !== String(invoiceId).trim()) {
+        await db.collection("eduzz_events").doc(envelopeId).set(
+          { processed: false, reason: "deactivate_ignorado_outra_fatura", uid, email, invoiceId, faturaAtual: faturaAtual || null },
+          { merge: true }
+        );
+        return NextResponse.json({ ok: true, processed: false, reason: "deactivate_ignorado_outra_fatura", uid }, { status: 200 });
+      }
     }
 
     if (action === "activate") {

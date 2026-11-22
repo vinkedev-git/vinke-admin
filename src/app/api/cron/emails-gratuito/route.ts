@@ -168,6 +168,29 @@ export async function GET(req: NextRequest) {
   // amanhã, porque as janelas são largas e a marca d1/d3SentAt só é gravada no envio.
   const MAX_POR_EXECUCAO = Number(process.env.EMAILS_GRATUITO_MAX ?? 80);
   const inicio = Date.now();
+
+  // ── Plano pago vencido vira grátis ──────────────────────────────────────
+  // O app já trata o vencido como grátis (usePlano); aqui o banco acompanha,
+  // para as firestore.rules aplicarem o mesmo. Guarda o plano anterior; uma
+  // nova fatura paga reativa o plano normalmente pelo webhook.
+  {
+    const rebaixados: string[] = [];
+    const ents = await adminDb.collection("entitlements").get();
+    for (const d of ents.docs) {
+      const e = d.data() as { plan?: unknown; validUntil?: { toMillis?: () => number } };
+      const plano = String(e.plan ?? "");
+      const vence = e.validUntil?.toMillis?.() ?? 0;
+      if (!plano || plano === "gratuito" || !vence || vence >= now) continue;
+      if (!dryRun) {
+        await d.ref.set(
+          { plan: "gratuito", active: true, productTitle: "Plano Gratuito", planoAnterior: plano, rebaixadoEm: new Date(), updatedAt: new Date() },
+          { merge: true },
+        );
+      }
+      rebaixados.push(plano);
+    }
+    (resultado as Record<string, unknown>).rebaixadosParaGratis = rebaixados.length;
+  }
   const [elegD1, elegD3] = await Promise.all([elegiveis(alvoD1, "d1"), elegiveis(alvoD3, "d3")]);
   // O D+3 é o e-mail que vende; garante a ele pelo menos 40% da cota quando há fila.
   const reservaD3 = Math.min(Math.floor(MAX_POR_EXECUCAO * 0.4), elegD3.length);
