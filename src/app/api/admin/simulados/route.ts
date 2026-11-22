@@ -14,6 +14,9 @@ type SimuladoListItem = {
   aluno: string;
   totalQuestions: number;
   nota: number;
+  /** respondidas e acertos: "nota" divide pelo TOTAL e confundia (0% pendente) */
+  respondidas: number;
+  acertos: number;
   status: "pendente" | "concluido";
 };
 
@@ -135,6 +138,8 @@ export async function GET(req: NextRequest) {
             "Aluno sem nome",
           totalQuestions,
           nota: Number(score.toFixed(1)),
+          respondidas: Number(data.answeredCount ?? Object.keys((data.answersMap as Record<string, unknown>) ?? {}).length) || 0,
+          acertos: Number(data.correctCount ?? 0) || 0,
           status: normalizeStatus(data),
           sortSeconds: getSeconds(createdSource),
           email: user?.email ?? "",

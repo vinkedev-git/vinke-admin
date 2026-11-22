@@ -14,6 +14,8 @@ type SimuladoListItem = {
   aluno: string;
   totalQuestions: number;
   nota: number;
+  respondidas: number;
+  acertos: number;
   status: "pendente" | "concluido";
 };
 
@@ -25,7 +27,7 @@ function StatusBadge({ status }: { status: SimuladoListItem["status"] }) {
 
   return (
     <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold uppercase ${cls}`}>
-      {status === "concluido" ? "concluído" : "pendente"}
+      {status === "concluido" ? "concluído" : "em andamento"}
     </span>
   );
 }
@@ -133,7 +135,7 @@ export default function SimuladosPage() {
                 <th className="px-5 py-4 text-left">Criado em</th>
                 <th className="px-5 py-4 text-left">Aluno</th>
                 <th className="px-5 py-4 text-left">Questões</th>
-                <th className="px-5 py-4 text-left">Nota</th>
+                <th className="px-5 py-4 text-left">Acerto</th>
                 <th className="px-5 py-4 text-left">Status</th>
                 <th className="px-5 py-4 text-right">Ações</th>
               </tr>
@@ -155,14 +157,30 @@ export default function SimuladosPage() {
                     <div className="mt-1 text-xs text-slate-400">Encerrado: {item.endedAt}</div>
                   </td>
                   <td className="px-5 py-4 font-semibold text-slate-800">{item.aluno}</td>
-                  <td className="px-5 py-4 text-slate-600">{item.totalQuestions}</td>
-                  <td className="px-5 py-4">
-                    <span className="inline-flex rounded-full bg-indigo-100 px-3 py-1 text-xs font-bold text-indigo-700">
-                      {item.nota.toFixed(1)}%
-                    </span>
+                  <td className="px-5 py-4 text-slate-600">
+                    {item.respondidas} de {item.totalQuestions}
+                    <div className="mt-0.5 text-xs text-slate-400">respondidas</div>
                   </td>
                   <td className="px-5 py-4">
-                    <StatusBadge status={item.status} />
+                    {item.respondidas > 0 ? (
+                      <span
+                        className="inline-flex rounded-full bg-indigo-100 px-3 py-1 text-xs font-bold text-indigo-700"
+                        title={`${item.acertos} acertos em ${item.respondidas} respondidas`}
+                      >
+                        {Math.round((item.acertos / item.respondidas) * 100)}%
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-400">—</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-4">
+                    {item.status === "pendente" && item.respondidas === 0 ? (
+                      <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-bold uppercase tracking-[0.08em] text-slate-500">
+                        não começou
+                      </span>
+                    ) : (
+                      <StatusBadge status={item.status} />
+                    )}
                   </td>
                   <td className="px-5 py-4">
                     <div className="flex justify-end gap-2">
