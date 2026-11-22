@@ -626,8 +626,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // No formato atual da Eduzz (myeduzz.invoice_*), o número da fatura vem em
+    // data.id; sem ele o entitlement ficava sem invoiceId e um reembolso
+    // legítimo não conseguiria desativar o acesso pago.
     const invoiceId =
-      pickFirstString(sourceData?.invoice?.id, sourceData?.invoice_id, sourceData?.edz_fat_cod) || null;
+      pickFirstString(sourceData?.invoice?.id, sourceData?.invoice_id, sourceData?.edz_fat_cod, sourceData?.id) || null;
 
     // Plano/produto (vários formatos)
     const productFromItems =
