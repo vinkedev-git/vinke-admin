@@ -23,7 +23,7 @@ import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 const admin = require("firebase-admin");
 admin.initializeApp({ credential: admin.credential.cert(
-  require("/Users/davidrangel/Projetos/EnemQuest/.secrets/vinke-74695-firebase-adminsdk-fbsvc-374e2db752.json")) });
+  require(decodeURIComponent(new URL("../../.secrets/vinke-74695-firebase-adminsdk-fbsvc-374e2db752.json", import.meta.url).pathname))) });
 const db = admin.firestore();
 const bucket = admin.storage().bucket("vinke-questoes");
 const DRY = process.argv.includes("--dry");

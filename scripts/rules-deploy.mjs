@@ -9,8 +9,8 @@ const require = createRequire(import.meta.url);
 const { GoogleAuth } = require("google-auth-library");
 
 const PROJECT = "vinke-74695";
-const RULES_FILE = "/Users/davidrangel/Projetos/EnemQuest/vinke-aluno/firestore.rules";
-const SA = "/Users/davidrangel/Projetos/EnemQuest/.secrets/vinke-74695-firebase-adminsdk-fbsvc-374e2db752.json";
+const RULES_FILE = decodeURIComponent(new URL("../../vinke-aluno/firestore.rules", import.meta.url).pathname);
+const SA = decodeURIComponent(new URL("../../.secrets/vinke-74695-firebase-adminsdk-fbsvc-374e2db752.json", import.meta.url).pathname);
 
 async function main() {
   const auth = new GoogleAuth({

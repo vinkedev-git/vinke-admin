@@ -6,10 +6,10 @@
 // Bloqueio manual: res2026/bloqueadas.json = ["ENEM2026_Q123", ...]
 import { createRequire } from "node:module";
 import fs from "node:fs";
-const require = createRequire("/Users/davidrangel/Projetos/EnemQuest/vinke-admin/package.json");
+const require = createRequire(decodeURIComponent(new URL("../../../vinke-admin/package.json", import.meta.url).pathname));
 const { cert, initializeApp } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
-for (const line of fs.readFileSync("/Users/davidrangel/Projetos/EnemQuest/.env.local", "utf8").split(/\r?\n/)) {
+for (const line of fs.readFileSync(decodeURIComponent(new URL("../../../.env.local", import.meta.url).pathname), "utf8").split(/\r?\n/)) {
   const i = line.indexOf("="); if (i < 0) continue;
   let v = line.slice(i + 1).trim(); if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1);
   process.env[line.slice(0, i).trim()] ??= v;
